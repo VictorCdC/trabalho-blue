@@ -1,0 +1,70 @@
+{
+  "_leia_me": "Fonte única do contrato de permissões do BLUE. Frontend e backend NÃO mantêm cópias: os arquivos rbac-gerado.ts e rbac_gerado.py são emitidos daqui por `python rbac/gerar.py`. A CI roda `--check` e falha se estiverem desatualizados.",
+
+  "_privacidade": "Decisão de privacidade (LGPD): dado clínico identificado é exclusivo do SESMT. RH e admin veem apenas agregados; a equipe da plataforma (superuser) administra tenants mas NÃO lê queixa identificada. Para permitir, acrescente 'dados:identificados' em superuser — e assuma a consequência.",
+
+  "permissoes": {
+    "checkin:registrar": "Registrar o próprio check-in diário",
+    "queixa:registrar": "Registrar a própria queixa",
+    "queixa:ver_proprias": "Ver o próprio histórico de queixas",
+
+    "painel:ver": "Abrir o painel",
+    "dados:agregados": "Números por unidade/setor/cargo, sem nome",
+    "dados:identificados": "Nome + histórico clínico do colaborador",
+    "alertas:ver": "Ver alertas individuais e coletivos",
+    "casos:ver": "Ver casos",
+    "casos:gerenciar": "Criar, atualizar e encerrar casos",
+    "colaboradores:ver_lista": "Lista cadastral, sem dado clínico",
+    "relatorios:ver": "Ver e exportar relatórios",
+
+    "estrutura:gerenciar": "Unidades, setores e cargos",
+    "usuarios:gerenciar": "Usuários e acessos da empresa",
+
+    "empresas:gerenciar": "Empresas clientes, planos e tenants"
+  },
+
+  "papeis": {
+    "colaborador": [
+      "checkin:registrar",
+      "queixa:registrar",
+      "queixa:ver_proprias"
+    ],
+    "rh": [
+      "painel:ver",
+      "dados:agregados",
+      "alertas:ver",
+      "relatorios:ver"
+    ],
+    "sesmt": [
+      "painel:ver",
+      "dados:agregados",
+      "dados:identificados",
+      "alertas:ver",
+      "casos:ver",
+      "casos:gerenciar",
+      "colaboradores:ver_lista",
+      "relatorios:ver"
+    ],
+    "admin": [
+      "painel:ver",
+      "dados:agregados",
+      "alertas:ver",
+      "casos:ver",
+      "colaboradores:ver_lista",
+      "relatorios:ver",
+      "estrutura:gerenciar",
+      "usuarios:gerenciar"
+    ],
+    "superuser": [
+      "painel:ver",
+      "dados:agregados",
+      "alertas:ver",
+      "casos:ver",
+      "colaboradores:ver_lista",
+      "relatorios:ver",
+      "estrutura:gerenciar",
+      "usuarios:gerenciar",
+      "empresas:gerenciar"
+    ]
+  }
+}
