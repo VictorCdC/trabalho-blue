@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  contrato-rbac:
+    name: contrato RBAC em dia
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # falha se rbac-gerado.ts ou rbac_gerado.py estiverem fora de
+      # rbac/permissoes.json — é o que impede frontend e backend de divergirem
+      - run: python rbac/gerar.py --check
+
+  locks:
+    name: locks batem com os .in
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./scripts/compilar-deps.sh
+      - name: requirements recompilado sem diferença
+        run: git diff --exit-code -- backend/requirements.txt backend/requirements-dev.txt
+
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: blue
+          POSTGRES_PASSWORD: blue
+          POSTGRES_DB: blue
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql+psycopg2://blue:blue@localhost:5432/blue_teste
+      SECRET_KEY: chave-de-ci-sem-valor-nenhum
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      # comandos separados: o pip liga --require-hashes para a invocação
+      # inteira, e só o lock de runtime tem hashes
+      - run: pip install --require-hashes -r requirements.txt
+      - run: pip install -r requirements-dev.txt
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: mypy
+      - run: pytest -q
+      - name: migrations sobem e descem num banco limpo
+        env:
+          DATABASE_URL: postgresql+psycopg2://blue:blue@localhost:5432/blue
+        run: |
+          alembic upgrade head
+          alembic check          # migration divergiu dos modelos?
+          alembic downgrade base
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      # hoje passa com warnings herdados; quando estiverem zerados, troque por
+      # `npm run lint -- --max-warnings 0`
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run build
