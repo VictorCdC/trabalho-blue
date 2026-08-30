@@ -1,36 +1,78 @@
+# Ambiente de desenvolvimento. Requer um .env na raiz: cp .env.example .env
+# Nenhum segredo é definido aqui — só lido do .env.
+
 services:
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      target: dev
     ports:
       - "3000:3000"
     volumes:
       - ./frontend:/app
       - /app/node_modules
+      - /app/.next
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      - NEXT_PUBLIC_AMBIENTE=${NEXT_PUBLIC_AMBIENTE:-demo}
     depends_on:
-      - backend
+      backend:
+        condition: service_started
+
+  # roda as migrations e sai. O backend só sobe depois que este termina bem —
+  # migration em startup de aplicação vira corrida quando há mais de um processo.
+  migracoes:
+    build:
+      context: ./backend
+      target: dev
+    command: ["alembic", "upgrade", "head"]
+    volumes:
+      - ./backend:/app
+    environment:
+      - DATABASE_URL=${DATABASE_URL:?defina no .env}
+      - SECRET_KEY=${SECRET_KEY:?defina no .env}
+    depends_on:
+      db:
+        condition: service_healthy
 
   backend:
-    build: ./backend
+    build:
+      context: ./backend
+      target: dev
     ports:
       - "8000:8000"
     volumes:
       - ./backend:/app
-      - ./rbac:/app/rbac
     environment:
-      - DATABASE_URL=postgresql+psycopg2://blue:blue@db:5432/blue
+      - DATABASE_URL=${DATABASE_URL:?defina no .env}
+      - AMBIENTE=${AMBIENTE:-desenvolvimento}
+      - SECRET_KEY=${SECRET_KEY:?defina no .env}
+      - SESSAO_HORAS=${SESSAO_HORAS:-8}
+      - COOKIE_SECURE=${COOKIE_SECURE:-false}
+      - LOGIN_MAX_TENTATIVAS=${LOGIN_MAX_TENTATIVAS:-5}
+      - LOGIN_BLOQUEIO_MINUTOS=${LOGIN_BLOQUEIO_MINUTOS:-15}
+      - K_MINIMO_AGREGACAO=${K_MINIMO_AGREGACAO:-5}
+      - ORIGENS_PERMITIDAS=${ORIGENS_PERMITIDAS:-http://localhost:3000}
     depends_on:
-      - db
+      migracoes:
+        condition: service_completed_successfully
 
   db:
     image: postgres:16-alpine
     environment:
-      - POSTGRES_USER=blue
-      - POSTGRES_PASSWORD=blue
-      - POSTGRES_DB=blue
+      - POSTGRES_USER=${POSTGRES_USER:?defina no .env}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?defina no .env}
+      - POSTGRES_DB=${POSTGRES_DB:?defina no .env}
+    # só no loopback, e em porta configurável: 5432 costuma já estar tomada
+    # por um Postgres instalado na máquina.
     ports:
-      - "5432:5432"
+      - "127.0.0.1:${DB_PORTA_HOST:-5433}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
     volumes:
       - pgdata:/var/lib/postgresql/data
 

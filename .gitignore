@@ -1,0 +1,27 @@
+# segredos — nunca versionar. O modelo é o .env.example; padrões sem segredo
+# (frontend/.env.development) são versionados de propósito.
+.env
+.env.local
+.env.*.local
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# node / next (o frontend tem o seu próprio, este cobre a raiz)
+node_modules/
+.next/
+*.tsbuildinfo
+
+# sistema operacional / editores
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
