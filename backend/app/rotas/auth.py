@@ -1,0 +1,109 @@
+"""Login, sessão e logout.
+
+Cuidados que valem repetir: a resposta de erro é sempre a mesma frase (não
+revela se o CPF existe), a verificação de senha roda mesmo para CPF
+inexistente (não vaza pelo tempo de resposta) e o bloqueio é por conta, com
+prazo, porque CPF é enumerável.
+"""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime, timedelta
+
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app import auditoria
+from app.autorizacao import usuario_atual
+from app.config import obter_config
+from app.db import obter_sessao
+from app.esquemas import LoginEntrada, UsuarioEu
+from app.models import Usuario
+from app.seguranca import HASH_DESCARTAVEL, definir_cookie, limpar_cookie, senha_confere
+
+roteador = APIRouter(prefix="/auth", tags=["auth"])
+
+CREDENCIAL_INVALIDA = "CPF ou senha invalidos"
+
+
+@roteador.post("/login", response_model=UsuarioEu)
+def login(
+    entrada: LoginEntrada,
+    requisicao: Request,
+    resposta: Response,
+    sessao: Session = Depends(obter_sessao),
+) -> Usuario:
+    config = obter_config()
+    agora = datetime.now(UTC)
+    usuario = sessao.scalars(select(Usuario).where(Usuario.cpf == entrada.cpf)).one_or_none()
+
+    if usuario is not None and usuario.bloqueado_ate is not None and usuario.bloqueado_ate > agora:
+        auditoria.registrar(
+            sessao,
+            acao="login:bloqueado",
+            recurso="usuario",
+            recurso_id=usuario.id,
+            ator_id=usuario.id,
+            ator_role=usuario.role,
+            empresa_id=usuario.empresa_id,
+            requisicao=requisicao,
+        )
+        sessao.commit()
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Muitas tentativas. Tente de novo mais tarde.",
+        )
+
+    # roda o verify mesmo sem usuário para não diferenciar pelo tempo de resposta
+    hash_alvo = usuario.senha_hash if usuario is not None else HASH_DESCARTAVEL
+    confere = senha_confere(hash_alvo, entrada.senha)
+
+    conta_inativa = usuario is not None and confere and not usuario.ativo
+
+    if usuario is None or not confere or not usuario.ativo:
+        if usuario is not None and not conta_inativa:
+            usuario.tentativas_falhas += 1
+            if usuario.tentativas_falhas >= config.login_max_tentativas:
+                usuario.bloqueado_ate = agora + timedelta(minutes=config.login_bloqueio_minutos)
+                usuario.tentativas_falhas = 0
+        auditoria.registrar(
+            sessao,
+            acao="login:falha",
+            recurso="usuario",
+            recurso_id=usuario.id if usuario else None,
+            ator_id=usuario.id if usuario else None,
+            ator_role=usuario.role if usuario else None,
+            empresa_id=usuario.empresa_id if usuario else None,
+            detalhe="conta inativa" if conta_inativa else None,
+            requisicao=requisicao,
+        )
+        sessao.commit()
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=CREDENCIAL_INVALIDA)
+
+    usuario.tentativas_falhas = 0
+    usuario.bloqueado_ate = None
+    auditoria.registrar(
+        sessao,
+        acao="login:sucesso",
+        recurso="usuario",
+        recurso_id=usuario.id,
+        ator_id=usuario.id,
+        ator_role=usuario.role,
+        empresa_id=usuario.empresa_id,
+        requisicao=requisicao,
+    )
+    sessao.commit()
+    definir_cookie(resposta, usuario.id)
+    return usuario
+
+
+@roteador.get("/eu", response_model=UsuarioEu)
+def eu(usuario: Usuario = Depends(usuario_atual)) -> Usuario:
+    """Quem está autenticado. Não exige permissão: todo perfil pode se ver."""
+    return usuario
+
+
+@roteador.post("/sair", status_code=status.HTTP_204_NO_CONTENT)
+def sair(resposta: Response) -> None:
+    limpar_cookie(resposta)
