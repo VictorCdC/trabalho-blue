@@ -1,0 +1,215 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ---------------------------------------------------------------
+   BLUE — azul clínico + semáforo de severidade.
+   A cor azul é a identidade; verde/âmbar/laranja/vermelho são
+   reservados exclusivamente para intensidade de dor e severidade
+   de alerta, para que cor sempre signifique algo no painel.
+   --------------------------------------------------------------- */
+:root {
+  --radius: 0.625rem;
+
+  --background: #f4f8fb;
+  --foreground: #0b2033;
+
+  --card: #ffffff;
+  --card-foreground: #0b2033;
+  --popover: #ffffff;
+  --popover-foreground: #0b2033;
+
+  --primary: #0b4f86;
+  --primary-foreground: #ffffff;
+  --primary-hover: #0e5f9f;
+
+  --secondary: #e8f2fa;
+  --secondary-foreground: #0b4f86;
+
+  --muted: #eef3f8;
+  --muted-foreground: #5a7183;
+
+  --accent: #e8f2fa;
+  --accent-foreground: #0b4f86;
+
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+
+  --border: #dbe6ef;
+  --input: #cfdded;
+  --ring: #1e7fc2;
+
+  /* semáforo de severidade */
+  --sev-ok: #16a34a;
+  --sev-1: #16a34a;
+  --sev-2: #84cc16;
+  --sev-3: #f59e0b;
+  --sev-4: #f97316;
+  --sev-5: #dc2626;
+
+  --sev-ok-soft: #dcfce7;
+  --sev-1-soft: #dcfce7;
+  --sev-2-soft: #ecfccb;
+  --sev-3-soft: #fef3c7;
+  --sev-4-soft: #ffedd5;
+  --sev-5-soft: #fee2e2;
+
+  /* gráficos — azuis + acentos neutros, nunca colidem com o semáforo */
+  --chart-1: #1e7fc2;
+  --chart-2: #0b4f86;
+  --chart-3: #5eb3e4;
+  --chart-4: #7c5cbf;
+  --chart-5: #0f766e;
+
+  --sidebar: #ffffff;
+  --sidebar-foreground: #0b2033;
+  --sidebar-border: #dbe6ef;
+}
+
+.dark {
+  --background: #081420;
+  --foreground: #e4eef6;
+
+  --card: #0e1f30;
+  --card-foreground: #e4eef6;
+  --popover: #0e1f30;
+  --popover-foreground: #e4eef6;
+
+  --primary: #3b9bdc;
+  --primary-foreground: #04121e;
+  --primary-hover: #55acea;
+
+  --secondary: #14293d;
+  --secondary-foreground: #cfe6f7;
+
+  --muted: #14293d;
+  --muted-foreground: #8fa9bf;
+
+  --accent: #16324a;
+  --accent-foreground: #cfe6f7;
+
+  --destructive: #f05252;
+  --destructive-foreground: #1a0505;
+
+  --border: #1d3b52;
+  --input: #24425e;
+  --ring: #3b9bdc;
+
+  --sev-ok: #4ade80;
+  --sev-1: #4ade80;
+  --sev-2: #a3e635;
+  --sev-3: #fbbf24;
+  --sev-4: #fb923c;
+  --sev-5: #f87171;
+
+  --sev-ok-soft: #0f2e1d;
+  --sev-1-soft: #0f2e1d;
+  --sev-2-soft: #1f2c0f;
+  --sev-3-soft: #33280a;
+  --sev-4-soft: #38220f;
+  --sev-5-soft: #3a1414;
+
+  --chart-1: #3b9bdc;
+  --chart-2: #7cc5f0;
+  --chart-3: #1c6ba5;
+  --chart-4: #a78bfa;
+  --chart-5: #2dd4bf;
+
+  --sidebar: #0e1f30;
+  --sidebar-foreground: #e4eef6;
+  --sidebar-border: #1d3b52;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-hover: var(--primary-hover);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-sev-ok: var(--sev-ok);
+  --color-sev-1: var(--sev-1);
+  --color-sev-2: var(--sev-2);
+  --color-sev-3: var(--sev-3);
+  --color-sev-4: var(--sev-4);
+  --color-sev-5: var(--sev-5);
+  --color-sev-ok-soft: var(--sev-ok-soft);
+  --color-sev-1-soft: var(--sev-1-soft);
+  --color-sev-2-soft: var(--sev-2-soft);
+  --color-sev-3-soft: var(--sev-3-soft);
+  --color-sev-4-soft: var(--sev-4-soft);
+  --color-sev-5-soft: var(--sev-5-soft);
+
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+    outline-color: color-mix(in srgb, var(--ring) 50%, transparent);
+  }
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+      "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  /* números tabulares em tudo que é métrica */
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* área de toque confortável no celular */
+@layer utilities {
+  .touch-target {
+    min-height: 44px;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  /* brilho neon do mapa corporal — só no escuro, onde há fundo para o halo
+     aparecer; no claro a figura fica em linha limpa, sem glow.
+     A cor vai cheia de propósito e a suavidade vem do raio: color-mix() com
+     var() não sobrevive ao build (o Lightning CSS descarta a mistura e deixa
+     a cor cheia sem avisar), então escrever alfa aqui seria mentira. */
+  .dark .brilho-corpo {
+    filter: drop-shadow(0 0 1px var(--primary)) drop-shadow(0 0 5px var(--primary));
+  }
+}
