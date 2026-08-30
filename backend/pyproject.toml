@@ -1,0 +1,45 @@
+# Configuração das ferramentas. As dependências ficam nos requirements*.in
+# (pip-tools) — este arquivo não declara pacotes.
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.format]
+# arquivo gerado por rbac/gerar.py: formatar aqui faria o --check acusar
+# desatualizado a cada rodada
+exclude = ["app/rbac_gerado.py"]
+
+[tool.ruff.lint]
+select = [
+  "E", "F", "W",  # pyflakes/pycodestyle
+  "I",            # ordenação de imports
+  "UP",           # sintaxe moderna
+  "B",            # bugbear
+  "S",            # bandit (segurança)
+  "ASYNC",
+]
+
+[tool.ruff.lint.flake8-bugbear]
+# Depends() no default do parâmetro é a forma do FastAPI, não o bug que o
+# B008 procura. `requer` é o nosso Depends.
+extend-immutable-calls = ["fastapi.Depends", "app.autorizacao.requer"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "S105", "S106"]        # assert e senhas fixas são normais em teste
+"alembic/versions/*" = ["E501"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["app", "tests"]
+
+[[tool.mypy.overrides]]
+# testes não ganham nada em anotar cada fixture no parâmetro
+module = "tests.*"
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["error"]

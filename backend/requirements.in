@@ -1,0 +1,17 @@
+# Dependências de runtime. Edite este arquivo, nunca o requirements.txt:
+#   ./scripts/compilar-deps.sh
+# O .txt é gerado dentro de um container Linux para o lock bater com a imagem
+# de deploy — não compile no Windows.
+
+fastapi>=0.115
+# sem o extra [standard]: ele puxa uvloop, que não instala no Windows, e o
+# lock é compilado no Linux (sem marcador de plataforma para excluí-lo).
+# watchfiles entra explícito porque é o que dá o --reload no dev.
+uvicorn>=0.32
+watchfiles>=0.24
+sqlalchemy>=2.0
+alembic>=1.14
+psycopg2-binary>=2.9
+pydantic-settings>=2.6
+argon2-cffi>=23.1     # hash de senha
+itsdangerous>=2.2     # assinatura do cookie de sessão

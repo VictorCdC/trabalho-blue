@@ -1,0 +1,11 @@
+# Ferramentas de desenvolvimento e teste. Não entram na imagem de produção.
+# Gerado por ./scripts/compilar-deps.sh, sem hashes (ver o porquê lá).
+# Instale em comando separado do requirements.txt: o pip liga o modo
+# --require-hashes para a invocação inteira se qualquer arquivo tiver hash.
+
+-c requirements.txt
+
+pytest>=8.3
+httpx2>=0.1            # TestClient do Starlette 1.x (o httpx 0.x está depreciado lá)
+ruff>=0.8
+mypy>=1.13
