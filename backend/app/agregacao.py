@@ -38,12 +38,23 @@ class GrupoDivulgado:
     suprimido: bool
 
 
-def aplicar_k_minimo(grupos: Iterable[Grupo], k: int) -> list[GrupoDivulgado]:
+def divulga(pessoas: int, k: int) -> bool:
+    """O grupo e grande o bastante para ser divulgado?
+
+    Existe separado de `aplicar_k_minimo` porque os agregados de setor e de
+    cargo carregam campos que nao sao metrica numerica (a regiao mais
+    relatada, por exemplo) e nao cabem em `Grupo` — mas a regra de corte
+    precisa continuar sendo uma so.
+    """
     if k < 2:
         raise ValueError("k < 2 divulgaria individuo como se fosse agregado")
+    return pessoas >= k
+
+
+def aplicar_k_minimo(grupos: Iterable[Grupo], k: int) -> list[GrupoDivulgado]:
     return [
         GrupoDivulgado(chave=g.chave, pessoas=None, metricas=None, suprimido=True)
-        if g.pessoas < k
+        if not divulga(g.pessoas, k)
         else GrupoDivulgado(chave=g.chave, pessoas=g.pessoas, metricas=g.metricas, suprimido=False)
         for g in grupos
     ]

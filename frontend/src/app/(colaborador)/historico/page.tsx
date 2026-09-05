@@ -1,25 +1,25 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
+import { Link } from "@/components/link";
 import { ClipboardPlusIcon, InboxIcon } from "lucide-react";
+import { Paginador } from "@/components/painel/comuns";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { naJanela } from "@/lib/analytics";
+import { api } from "@/lib/api";
 import {
   AGRAVANTE_LABEL,
-  TIPO_DOR_LABEL,
   dataBR,
   dataRelativa,
-  diasAtras,
   fundoIntensidade,
   RELACAO_LABEL,
+  TIPO_DOR_LABEL,
 } from "@/lib/format";
+import { useRecurso } from "@/lib/recurso";
 import { rotuloRegiao } from "@/lib/regioes";
-import { useDados, useSessao } from "@/lib/sessao";
-import type { CheckIn, Queixa } from "@/lib/types";
+import type { CheckIn } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const JANELAS = [
@@ -28,23 +28,25 @@ const JANELAS = [
   { valor: "0", label: "Tudo" },
 ];
 
+const POR_PAGINA = 20;
+
 export default function PaginaHistorico() {
-  const { usuario } = useSessao();
-  const { snapshot } = useDados();
   const [janela, setJanela] = React.useState("30");
-
-  const meu = React.useMemo(() => {
-    if (!snapshot || !usuario) return { queixas: [] as Queixa[], checkins: [] as CheckIn[] };
-    return {
-      queixas: snapshot.queixas
-        .filter((q) => q.colaboradorId === usuario.id)
-        .sort((a, b) => b.data.localeCompare(a.data)),
-      checkins: snapshot.checkins.filter((c) => c.colaboradorId === usuario.id),
-    };
-  }, [snapshot, usuario]);
-
+  const [pagina, setPagina] = React.useState(0);
   const dias = Number(janela);
-  const queixas = dias ? meu.queixas.filter((q) => naJanela(q.data, dias)) : meu.queixas;
+
+  // "Tudo" não significa baixar tudo: a janela vira parâmetro e a lista
+  // continua paginada
+  const queixas = useRecurso(
+    () => api.minhasQueixas(dias, { limit: POR_PAGINA, offset: pagina * POR_PAGINA }),
+    [dias, pagina],
+    { chave: "meu/queixas" },
+  );
+  const checkins = useRecurso(() => api.meusCheckins(30), [], { chave: "meu/checkins" });
+
+  React.useEffect(() => setPagina(0), [dias]);
+
+  const itens = queixas.dados?.itens ?? [];
 
   return (
     <div className="space-y-5">
@@ -58,7 +60,7 @@ export default function PaginaHistorico() {
       <Card>
         <CardContent className="space-y-3">
           <h2 className="text-sm font-semibold">Seus check-ins nos últimos 30 dias</h2>
-          <FaixaCheckIns checkins={meu.checkins} />
+          <FaixaCheckIns checkins={checkins.dados ?? []} />
           <div className="text-muted-foreground flex gap-4 text-xs">
             <span className="flex items-center gap-1.5">
               <i className="bg-sev-ok size-2.5 rounded-full" /> Bem
@@ -83,7 +85,9 @@ export default function PaginaHistorico() {
         </TabsList>
       </Tabs>
 
-      {queixas.length === 0 ? (
+      {queixas.carregando ? (
+        <div className="bg-muted h-48 animate-pulse rounded-xl" />
+      ) : itens.length === 0 ? (
         <div className="flex flex-col items-center rounded-xl border border-dashed py-14 text-center">
           <InboxIcon className="text-muted-foreground size-8" />
           <p className="mt-3 font-medium">Nenhum desconforto registrado</p>
@@ -97,45 +101,54 @@ export default function PaginaHistorico() {
           </Button>
         </div>
       ) : (
-        <ol className="space-y-3">
-          {queixas.map((q) => (
-            <li key={q.id}>
-              <Card>
-                <CardContent className="space-y-2.5">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="font-semibold">{rotuloRegiao(q.regiao, q.lado)}</p>
-                      <p className="text-muted-foreground text-xs">
-                        {dataBR(q.data)} · {dataRelativa(q.data)}
-                      </p>
+        <>
+          <ol className="space-y-3">
+            {itens.map((q) => (
+              <li key={q.id}>
+                <Card>
+                  <CardContent className="space-y-2.5">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-semibold">{rotuloRegiao(q.regiao, q.lado)}</p>
+                        <p className="text-muted-foreground text-xs">
+                          {dataBR(q.data)} · {dataRelativa(q.data)}
+                        </p>
+                      </div>
+                      <span
+                        className={cn(
+                          "grid size-9 shrink-0 place-items-center rounded-lg text-sm font-bold text-white",
+                          fundoIntensidade(q.intensidade),
+                        )}
+                        title={`Intensidade ${q.intensidade} de 5`}
+                      >
+                        {q.intensidade}
+                      </span>
                     </div>
-                    <span
-                      className={cn(
-                        "grid size-9 shrink-0 place-items-center rounded-lg text-sm font-bold text-white",
-                        fundoIntensidade(q.intensidade),
-                      )}
-                      title={`Intensidade ${q.intensidade} de 5`}
-                    >
-                      {q.intensidade}
-                    </span>
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    <Badge variant="muted">{TIPO_DOR_LABEL[q.tipo]}</Badge>
-                    <Badge variant="muted">{AGRAVANTE_LABEL[q.agrava]}</Badge>
-                    <Badge variant="muted">
-                      Relação com trabalho: {RELACAO_LABEL[q.relacaoTrabalho]}
-                    </Badge>
-                  </div>
-                  {q.observacao && (
-                    <p className="text-muted-foreground border-l-2 pl-3 text-sm italic">
-                      “{q.observacao}”
-                    </p>
-                  )}
-                </CardContent>
-              </Card>
-            </li>
-          ))}
-        </ol>
+                    <div className="flex flex-wrap gap-1.5">
+                      <Badge variant="muted">{TIPO_DOR_LABEL[q.tipo]}</Badge>
+                      <Badge variant="muted">{AGRAVANTE_LABEL[q.agrava]}</Badge>
+                      <Badge variant="muted">
+                        Relação com trabalho: {RELACAO_LABEL[q.relacaoTrabalho]}
+                      </Badge>
+                    </div>
+                    {q.observacao && (
+                      <p className="text-muted-foreground border-l-2 pl-3 text-sm italic">
+                        “{q.observacao}”
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+              </li>
+            ))}
+          </ol>
+          <Paginador
+            total={queixas.dados?.total ?? 0}
+            pagina={pagina}
+            porPagina={POR_PAGINA}
+            onPagina={setPagina}
+            rotulo="registros"
+          />
+        </>
       )}
     </div>
   );
@@ -144,8 +157,10 @@ export default function PaginaHistorico() {
 function FaixaCheckIns({ checkins }: { checkins: CheckIn[] }) {
   const porDia = new Map(checkins.map((c) => [c.data.slice(0, 10), c.estado]));
   const dias = Array.from({ length: 30 }, (_, i) => {
-    const d = new Date(Date.now() - (29 - i) * 86_400_000);
-    const chave = d.toISOString().slice(0, 10);
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - (29 - i));
+    const chave = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     return { chave, dia: d.getDate(), estado: porDia.get(chave), fds: [0, 6].includes(d.getDay()) };
   });
 
@@ -155,13 +170,20 @@ function FaixaCheckIns({ checkins }: { checkins: CheckIn[] }) {
         <span
           key={d.chave}
           title={`${d.dia} — ${
-            d.estado === "bem" ? "bem" : d.estado === "desconforto" ? "com desconforto" : d.fds ? "fim de semana" : "sem registro"
+            d.estado === "bem"
+              ? "bem"
+              : d.estado === "desconforto"
+                ? "com desconforto"
+                : d.fds
+                  ? "fim de semana"
+                  : "sem registro"
           }`}
           className={cn(
             "size-6 rounded-md border text-[10px] leading-6 text-center tnum",
             d.estado === "bem" && "bg-sev-ok border-transparent text-white",
             d.estado === "desconforto" && "bg-sev-4 border-transparent text-white",
-            !d.estado && (d.fds ? "bg-muted/40 text-muted-foreground/50" : "bg-muted text-muted-foreground"),
+            !d.estado &&
+              (d.fds ? "bg-muted/40 text-muted-foreground/50" : "bg-muted text-muted-foreground"),
           )}
         >
           {d.dia}

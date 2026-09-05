@@ -1,10 +1,22 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
+import { Link } from "@/components/link";
 import { usePathname, useRouter } from "next/navigation";
-import * as Icones from "lucide-react";
-import { BriefcaseIcon, LogOutIcon, MenuIcon, RotateCcwIcon, XIcon } from "lucide-react";
+import {
+  BriefcaseIcon,
+  Building2Icon,
+  ChartColumnIcon,
+  ClipboardListIcon,
+  LayoutDashboardIcon,
+  LogOutIcon,
+  MenuIcon,
+  NetworkIcon,
+  ShieldCheckIcon,
+  TriangleAlertIcon,
+  UsersIcon,
+  XIcon,
+} from "lucide-react";
 import { Logo } from "@/components/logo";
 import { Protegido } from "@/components/protegido";
 import { BotaoTema } from "@/components/tema";
@@ -28,32 +40,61 @@ import {
 } from "@/components/ui/select";
 import { api } from "@/lib/api";
 import { iniciais, ROLE_LABEL } from "@/lib/format";
-import { navPara } from "@/lib/rbac";
+import { pode, navPara } from "@/lib/rbac";
+import { useRecurso } from "@/lib/recurso";
 import { useDados, useSessao } from "@/lib/sessao";
 import { cn } from "@/lib/utils";
-import type { Empresa } from "@/lib/types";
+
+/* Os ícones da navegação, um a um.
+
+   Aqui era `import * as Icones from "lucide-react"`, e um namespace inteiro
+   não tem como ser podado: a tela levava os mais de mil ícones da biblioteca
+   para desenhar nove. Em produção é bundle; em `next dev` é compilação a
+   cada primeira carga do painel — parte da demora ao navegar saía daqui.
+
+   O nome vem de `ItemNav.icone` (lib/rbac.ts). Item novo no menu precisa do
+   ícone listado aqui, senão não desenha. */
+const ICONES_NAV: Record<string, React.ComponentType<{ className?: string }>> = {
+  LayoutDashboard: LayoutDashboardIcon,
+  TriangleAlert: TriangleAlertIcon,
+  ClipboardList: ClipboardListIcon,
+  Building2: Building2Icon,
+  Users: UsersIcon,
+  ChartColumn: ChartColumnIcon,
+  Network: NetworkIcon,
+  ShieldCheck: ShieldCheckIcon,
+  Briefcase: BriefcaseIcon,
+};
 
 export default function LayoutPainel({ children }: { children: React.ReactNode }) {
   const caminho = usePathname();
   const router = useRouter();
   const { usuario, sair, empresaAtivaId, trocarEmpresa } = useSessao();
-  const { snapshot, alertas, recarregar } = useDados();
+  const { estrutura } = useDados();
   const [menuAberto, setMenuAberto] = React.useState(false);
-  const [empresas, setEmpresas] = React.useState<Empresa[]>([]);
 
-  const itens = navPara(usuario?.role);
+  const grupos = navPara(usuario?.role);
   const superuser = usuario?.role === "superuser";
 
-  React.useEffect(() => {
-    if (!superuser) return;
-    void api.listarEmpresas().then((r) => setEmpresas(r.map((x) => x.empresa)));
-  }, [superuser]);
+  const empresas = useRecurso(() => api.empresas(), [], { ativo: superuser });
+  // os contadores do menu vêm do `total` do servidor: a barra lateral nunca
+  // teve a lista para contar. A `chave` é o que os faz saber que um caso foi
+  // aberto ou resolvido — esta barra não desmonta entre telas, e sem aviso o
+  // número só se corrigia no F5.
+  const alertas = useRecurso(() => api.alertas({}, "todos", { limit: 1 }), [empresaAtivaId], {
+    ativo: Boolean(empresaAtivaId) && pode(usuario?.role, "alertas:ver"),
+    chave: "menu/alertas",
+  });
+  const casos = useRecurso(() => api.contagemCasos(), [empresaAtivaId], {
+    ativo: Boolean(empresaAtivaId) && pode(usuario?.role, "casos:ver"),
+    chave: "menu/casos",
+  });
 
   React.useEffect(() => {
     setMenuAberto(false);
   }, [caminho]);
 
-  const naoResolvidos = (snapshot?.casos ?? []).filter((c) => c.status !== "resolvido").length;
+  const naoResolvidos = (casos.dados?.aberto ?? 0) + (casos.dados?.emAndamento ?? 0);
 
   return (
     <Protegido papeis={["rh", "sesmt", "admin", "superuser"]}>
@@ -78,7 +119,7 @@ export default function LayoutPainel({ children }: { children: React.ReactNode }
             </Button>
           </div>
 
-          {superuser && empresas.length > 0 && (
+          {superuser && (empresas.dados?.length ?? 0) > 0 && (
             <div className="border-b px-4 py-3">
               <label className="text-muted-foreground text-[11px] font-medium uppercase tracking-wide">
                 Empresa
@@ -88,9 +129,9 @@ export default function LayoutPainel({ children }: { children: React.ReactNode }
                   <SelectValue placeholder="Selecione…" />
                 </SelectTrigger>
                 <SelectContent>
-                  {empresas.map((e) => (
-                    <SelectItem key={e.id} value={e.id}>
-                      {e.nome}
+                  {empresas.dados?.map(({ empresa }) => (
+                    <SelectItem key={empresa.id} value={empresa.id}>
+                      {empresa.nome}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -99,67 +140,61 @@ export default function LayoutPainel({ children }: { children: React.ReactNode }
           )}
 
           <nav className="flex-1 overflow-y-auto p-3">
-            <ul className="space-y-0.5">
-              {itens.map((item) => {
-                const Icone = (Icones as unknown as Record<string, React.ComponentType<{ className?: string }>>)[
-                  item.icone
-                ];
-                const ativo =
-                  item.href === "/painel"
-                    ? caminho === "/painel"
-                    : caminho.startsWith(item.href);
-                const contador =
-                  item.href === "/painel/alertas"
-                    ? alertas.length
-                    : item.href === "/painel/casos"
-                      ? naoResolvidos
-                      : 0;
-                return (
-                  <li key={item.href}>
-                    <Link
-                      href={item.href}
-                      className={cn(
-                        "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                        ativo
-                          ? "bg-primary text-primary-foreground"
-                          : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-                      )}
-                    >
-                      {Icone && <Icone className="size-4 shrink-0" />}
-                      <span className="flex-1 truncate">{item.label}</span>
-                      {contador > 0 && (
-                        <span
+            {grupos.map((grupo) => (
+              <div key={grupo.titulo} className="mb-4 last:mb-0">
+                <p className="text-muted-foreground/70 px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-wide">
+                  {grupo.titulo}
+                </p>
+                <ul className="space-y-0.5">
+                  {grupo.itens.map((item) => {
+                    const Icone = ICONES_NAV[item.icone];
+                    const ativo =
+                      item.href === "/painel"
+                        ? caminho === "/painel"
+                        : caminho.startsWith(item.href);
+                    const contador =
+                      item.href === "/painel/alertas"
+                        ? (alertas.dados?.total ?? 0)
+                        : item.href === "/painel/casos"
+                          ? naoResolvidos
+                          : 0;
+                    return (
+                      <li key={item.href}>
+                        <Link
+                          href={item.href}
                           className={cn(
-                            "rounded-full px-1.5 py-0.5 text-[11px] font-semibold tnum",
-                            ativo ? "bg-primary-foreground/20" : "bg-muted",
+                            "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                            ativo
+                              ? "bg-primary text-primary-foreground"
+                              : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
                           )}
                         >
-                          {contador}
-                        </span>
-                      )}
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
+                          {Icone && <Icone className="size-4 shrink-0" />}
+                          <span className="flex-1 truncate">{item.label}</span>
+                          {contador > 0 && (
+                            <span
+                              className={cn(
+                                "rounded-full px-1.5 py-0.5 text-[11px] font-semibold tnum",
+                                ativo ? "bg-primary-foreground/20" : "bg-muted",
+                              )}
+                            >
+                              {contador}
+                            </span>
+                          )}
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            ))}
           </nav>
 
           <div className="border-t p-3">
             <p className="text-muted-foreground px-3 pb-2 text-[11px]">
-              Ambiente de demonstração — os dados são fictícios.
+              Ambiente de demonstração — os dados são fictícios e vêm do seed do backend
+              (backend/scripts/semear.py).
             </p>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground w-full justify-start"
-              onClick={async () => {
-                await api.reiniciarDemo();
-                await recarregar();
-                router.refresh();
-              }}
-            >
-              <RotateCcwIcon /> Restaurar dados
-            </Button>
           </div>
         </aside>
 
@@ -185,10 +220,9 @@ export default function LayoutPainel({ children }: { children: React.ReactNode }
             </Button>
 
             <div className="min-w-0 flex-1">
-              <p className="truncate font-semibold">{snapshot?.empresa.nome ?? "—"}</p>
+              <p className="truncate font-semibold">{estrutura?.empresa.nome ?? "—"}</p>
               <p className="text-muted-foreground truncate text-xs">
-                {snapshot?.unidades.length ?? 0} unidades ·{" "}
-                {(snapshot?.usuarios ?? []).filter((u) => u.role === "colaborador").length}{" "}
+                {estrutura?.unidades.length ?? 0} unidades · {estrutura?.colaboradores ?? 0}{" "}
                 colaboradores
               </p>
             </div>
@@ -220,8 +254,7 @@ export default function LayoutPainel({ children }: { children: React.ReactNode }
                 <DropdownMenuItem
                   variant="destructive"
                   onClick={() => {
-                    sair();
-                    router.replace("/login");
+                    void sair().then(() => router.replace("/login"));
                   }}
                 >
                   <LogOutIcon /> Sair da conta

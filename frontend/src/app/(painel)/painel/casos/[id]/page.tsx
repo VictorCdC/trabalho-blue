@@ -1,8 +1,8 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { Link } from "@/components/link";
+import { useParams } from "next/navigation";
 import {
   ArrowLeftIcon,
   CheckIcon,
@@ -26,6 +26,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
   SelectContent,
@@ -35,11 +36,14 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
+import { tituloCaso } from "@/lib/casos";
 import { dataBR, dataRelativa, STATUS_CASO_LABEL, TIPO_ACAO_LABEL } from "@/lib/format";
-import { rotuloRegiao } from "@/lib/regioes";
 import { pode } from "@/lib/rbac";
+import { useNavegar } from "@/lib/carregando";
+import { invalidar, useRecurso } from "@/lib/recurso";
+import { rotuloRegiao } from "@/lib/regioes";
 import { useDados, useSessao } from "@/lib/sessao";
-import type { StatusCaso, TipoAcao } from "@/lib/types";
+import type { Caso, StatusCaso, TipoAcao } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 export default function PaginaCaso() {
@@ -52,20 +56,43 @@ export default function PaginaCaso() {
 
 function Conteudo() {
   const { id } = useParams<{ id: string }>();
-  const router = useRouter();
+  const { voltar: aoVoltar } = useNavegar();
   const { usuario } = useSessao();
-  const { snapshot, recarregar, colaborador, nomeSetor, nomeCargo, unidadeDoSetor } = useDados();
+  const { nomeSetor, unidadeDoSetor } = useDados();
 
   const [tipo, setTipo] = React.useState<TipoAcao | "">("");
   const [descricao, setDescricao] = React.useState("");
   const [dialogo, setDialogo] = React.useState(false);
   const [salvando, setSalvando] = React.useState(false);
+  // as mutações devolvem o caso inteiro; não é preciso recarregar a tela
+  const [local, setLocal] = React.useState<Caso | null>(null);
 
-  const caso = snapshot?.casos.find((c) => c.id === id);
+  const { dados, carregando } = useRecurso(() => api.caso(id), [id]);
+  const caso = local ?? dados;
+
   const identificar = pode(usuario?.role, "dados:identificados");
   const podeGerenciar = pode(usuario?.role, "casos:gerenciar");
 
-  if (!snapshot) return <div className="bg-muted h-96 animate-pulse rounded-xl" />;
+  // o "voltar" não depende do caso: some da tela justo quando é mais útil
+  const voltar = (
+    <Button
+      variant="ghost"
+      size="sm"
+      className="text-muted-foreground mb-4 -ml-2"
+      onClick={aoVoltar}
+    >
+      <ArrowLeftIcon /> Voltar
+    </Button>
+  );
+
+  if (carregando) {
+    return (
+      <>
+        {voltar}
+        <Skeleton className="h-96 rounded-xl" />
+      </>
+    );
+  }
 
   if (!caso) {
     return (
@@ -78,51 +105,26 @@ function Conteudo() {
     );
   }
 
-  const pessoa = caso.colaboradorId ? colaborador(caso.colaboradorId) : undefined;
-  const responsavel = colaborador(caso.responsavelId);
   const acoes = [...caso.acoes].sort((a, b) => b.data.localeCompare(a.data));
 
   async function adicionar() {
-    if (!usuario || !tipo || !descricao.trim()) return;
+    if (!tipo || !descricao.trim() || !caso) return;
     setSalvando(true);
-    await api.adicionarAcao(caso!.id, {
-      tipo,
-      descricao: descricao.trim(),
-      autorId: usuario.id,
-      concluida: false,
-    });
-    await recarregar();
+    setLocal(await api.adicionarAcao(caso.id, { tipo, descricao: descricao.trim() }));
     setSalvando(false);
     setDialogo(false);
     setTipo("");
     setDescricao("");
   }
 
-  async function mudarStatus(s: StatusCaso) {
-    await api.mudarStatusCaso(caso!.id, s);
-    await recarregar();
-  }
-
-  async function alternarAcao(acaoId: string, concluida: boolean) {
-    await api.concluirAcao(caso!.id, acaoId, concluida);
-    await recarregar();
-  }
-
   return (
     <>
-      <Button
-        variant="ghost"
-        size="sm"
-        className="text-muted-foreground mb-4 -ml-2"
-        onClick={() => router.push("/painel/casos")}
-      >
-        <ArrowLeftIcon /> Casos
-      </Button>
+      {voltar}
 
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-muted-foreground text-sm tnum">Caso #{caso.numero}</p>
-          <h1 className="text-2xl font-semibold tracking-tight">{caso.titulo}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">{tituloCaso(caso, nomeSetor)}</h1>
           <div className="mt-2.5 flex flex-wrap items-center gap-2">
             <Badge variant="muted">{caso.origem === "coletivo" ? "Coletivo" : "Individual"}</Badge>
             <SeloSeveridade severidade={caso.severidade} />
@@ -135,7 +137,16 @@ function Conteudo() {
             <Label htmlFor="status" className="text-muted-foreground text-xs">
               Status
             </Label>
-            <Select value={caso.status} onValueChange={(v) => void mudarStatus(v as StatusCaso)}>
+            <Select
+              value={caso.status}
+              onValueChange={(v) =>
+                void api.mudarStatusCaso(caso.id, v as StatusCaso).then((atualizado) => {
+                  setLocal(atualizado);
+                  // resolver um caso muda o contador da barra e as abas da lista
+                  invalidar("menu/casos", "menu/alertas", "casos", "casos/contagem", "alertas", "painel/alertas");
+                })
+              }
+            >
               <SelectTrigger id="status" size="sm" className="min-w-36">
                 <SelectValue />
               </SelectTrigger>
@@ -200,7 +211,10 @@ function Conteudo() {
                     <Button variant="outline" onClick={() => setDialogo(false)}>
                       Cancelar
                     </Button>
-                    <Button disabled={!tipo || !descricao.trim() || salvando} onClick={() => void adicionar()}>
+                    <Button
+                      disabled={!tipo || !descricao.trim() || salvando}
+                      onClick={() => void adicionar()}
+                    >
                       {salvando && <LoaderCircleIcon className="animate-spin" />}
                       Salvar ação
                     </Button>
@@ -221,8 +235,16 @@ function Conteudo() {
                     <button
                       type="button"
                       disabled={!podeGerenciar}
-                      onClick={() => void alternarAcao(a.id, !a.concluida)}
-                      title={podeGerenciar ? (a.concluida ? "Marcar como pendente" : "Marcar como concluída") : undefined}
+                      onClick={() =>
+                        void api.concluirAcao(caso.id, a.id, !a.concluida).then(setLocal)
+                      }
+                      title={
+                        podeGerenciar
+                          ? a.concluida
+                            ? "Marcar como pendente"
+                            : "Marcar como concluída"
+                          : undefined
+                      }
                       className={cn(
                         "absolute -left-[31px] grid size-5 place-items-center rounded-full border-2",
                         a.concluida
@@ -240,8 +262,7 @@ function Conteudo() {
                     <p className="text-sm font-semibold">{TIPO_ACAO_LABEL[a.tipo]}</p>
                     <p className="text-muted-foreground mt-0.5 text-sm">{a.descricao}</p>
                     <p className="text-muted-foreground/70 mt-1 text-xs">
-                      {dataBR(a.data)} · {dataRelativa(a.data)} ·{" "}
-                      {colaborador(a.autorId)?.nome ?? "—"}
+                      {dataBR(a.data)} · {dataRelativa(a.data)}
                       {!a.concluida && " · pendente"}
                     </p>
                   </li>
@@ -262,30 +283,23 @@ function Conteudo() {
               {caso.origem === "coletivo" ? (
                 <>
                   <Linha rotulo="Setor" valor={nomeSetor(caso.setorId)} />
-                  <Linha
-                    rotulo="Unidade"
-                    valor={caso.setorId ? unidadeDoSetor(caso.setorId) : "—"}
-                  />
+                  <Linha rotulo="Unidade" valor={unidadeDoSetor(caso.setorId)} />
                 </>
-              ) : identificar && pessoa ? (
-                <>
-                  <Linha rotulo="Colaborador" valor={pessoa.nome} />
-                  <Linha rotulo="Cargo" valor={nomeCargo(pessoa.cargoId)} />
-                  <Linha rotulo="Setor" valor={nomeSetor(pessoa.setorId)} />
-                </>
+              ) : caso.colaboradorNome ? (
+                <Linha rotulo="Colaborador" valor={caso.colaboradorNome} />
               ) : (
                 <p className="text-muted-foreground">
                   Colaborador não identificado no seu perfil de acesso.
                 </p>
               )}
               <Linha rotulo="Aberto em" valor={dataBR(caso.abertoEm)} />
-              <Linha rotulo="Responsável" valor={responsavel?.nome ?? "—"} />
+              <Linha rotulo="Responsável" valor={caso.responsavelNome ?? "—"} />
             </CardContent>
           </Card>
 
-          {identificar && pessoa && (
+          {identificar && caso.colaboradorId && (
             <Button asChild variant="outline" className="w-full">
-              <Link href={`/painel/colaboradores/${pessoa.id}`}>
+              <Link href={`/painel/colaboradores/${caso.colaboradorId}`}>
                 <UserRoundIcon /> Ver histórico do colaborador
               </Link>
             </Button>

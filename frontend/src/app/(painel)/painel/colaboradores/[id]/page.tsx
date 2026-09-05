@@ -1,34 +1,28 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { Link } from "@/components/link";
+import { useParams } from "next/navigation";
 import { ArrowLeftIcon, LoaderCircleIcon } from "lucide-react";
 import { MapaCorporal, SeletorVista, montarCalor } from "@/components/mapa-corporal";
 import { CartaoAlerta } from "@/components/painel/cartao-alerta";
 import {
   CartaoKpi,
   EstadoVazio,
+  Paginador,
   SeloStatus,
 } from "@/components/painel/comuns";
-import { GraficoRegioes, GraficoTendencia } from "@/components/painel/graficos";
+import { GraficoRegioes, GraficoTendencia } from "@/components/painel/graficos-adiados";
 import { Protegido } from "@/components/protegido";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  agruparPorSemana,
-  naJanela,
-  porRegiao,
-  porRegiaoLado,
-  sequenciaCheckIn,
-  serieDiaria,
-} from "@/lib/analytics";
+import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
+import { tituloCaso } from "@/lib/casos";
 import {
   AGRAVANTE_LABEL,
-  cpfOculto,
   dataBR,
   dataRelativa,
   fundoIntensidade,
@@ -37,12 +31,14 @@ import {
   RELACAO_LABEL,
   TIPO_DOR_LABEL,
 } from "@/lib/format";
+import { useNavegar } from "@/lib/carregando";
+import { invalidar, useRecurso } from "@/lib/recurso";
 import { rotuloRegiao } from "@/lib/regioes";
-import { useDados, useSessao } from "@/lib/sessao";
+import { useDados } from "@/lib/sessao";
 import type { Alerta, Vista } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-const JANELA = 90;
+const POR_PAGINA = 20;
 
 export default function PaginaColaborador() {
   return (
@@ -54,38 +50,48 @@ export default function PaginaColaborador() {
 
 function Conteudo() {
   const { id } = useParams<{ id: string }>();
-  const router = useRouter();
-  const { usuario } = useSessao();
-  const { snapshot, alertas, recarregar, colaborador, nomeCargo, nomeSetor, nomeUnidade } =
-    useDados();
+  const { ir, voltar: aoVoltar } = useNavegar();
+  const { nomeCargo, nomeSetor, nomeUnidade } = useDados();
   const [vista, setVista] = React.useState<Vista>("costas");
   const [abrindo, setAbrindo] = React.useState(false);
+  const [pagina, setPagina] = React.useState(0);
 
-  const pessoa = colaborador(id);
+  // a ficha já vem agregada e a abertura fica na trilha de auditoria do servidor
+  const ficha = useRecurso(() => api.colaborador(id), [id]);
+  const registros = useRecurso(
+    () =>
+      api.queixasDoColaborador(id, ficha.dados?.janelaDias ?? 90, {
+        limit: POR_PAGINA,
+        offset: pagina * POR_PAGINA,
+      }),
+    [id, pagina, ficha.dados?.janelaDias],
+    { ativo: Boolean(ficha.dados) },
+  );
 
-  const dados = React.useMemo(() => {
-    if (!snapshot || !pessoa) return null;
-    const queixas = snapshot.queixas
-      .filter((q) => q.colaboradorId === pessoa.id && naJanela(q.data, JANELA))
-      .sort((a, b) => b.data.localeCompare(a.data));
-    const checkins = snapshot.checkins.filter(
-      (c) => c.colaboradorId === pessoa.id && naJanela(c.data, JANELA),
+  // idem à tela de caso: o caminho de volta continua na tela enquanto a ficha
+  // carrega. A ficha em si não entra no cache de navegação — o servidor audita
+  // a leitura, e desenhar do cache mostraria o dado antes do registro existir.
+  const voltar = (
+    <Button
+      variant="ghost"
+      size="sm"
+      className="text-muted-foreground mb-4 -ml-2"
+      onClick={aoVoltar}
+    >
+      <ArrowLeftIcon /> Voltar
+    </Button>
+  );
+
+  if (ficha.carregando) {
+    return (
+      <>
+        {voltar}
+        <Skeleton className="h-96 rounded-xl" />
+      </>
     );
-    const serie = serieDiaria(queixas, checkins, JANELA);
-    return {
-      queixas,
-      checkins,
-      regioes: porRegiao(queixas),
-      calor: montarCalor(porRegiaoLado(queixas)),
-      serie: agruparPorSemana(serie),
-      casos: snapshot.casos.filter((c) => c.colaboradorId === pessoa.id),
-      alertas: alertas.filter((a) => a.kind === "individual" && a.colaboradorId === pessoa.id),
-    };
-  }, [snapshot, pessoa, alertas]);
+  }
 
-  if (!snapshot) return <div className="bg-muted h-96 animate-pulse rounded-xl" />;
-
-  if (!pessoa || !dados) {
+  if (!ficha.dados) {
     return (
       <div className="py-20 text-center">
         <p className="font-medium">Colaborador não encontrado</p>
@@ -96,30 +102,20 @@ function Conteudo() {
     );
   }
 
-  const q30 = dados.queixas.filter((q) => naJanela(q.data, 30));
-  const c30 = dados.checkins.filter((c) => naJanela(c.data, 30));
-  const intensidade30 = q30.length ? q30.reduce((a, q) => a + q.intensidade, 0) / q30.length : 0;
-  const casoPorAlerta = new Map(dados.casos.map((c) => [c.alertaId, c.id]));
+  const dados = ficha.dados;
+  const pessoa = dados.colaborador;
 
   async function abrirCaso(alerta: Alerta) {
-    if (!usuario) return;
     setAbrindo(true);
-    const caso = await api.abrirCaso(alerta, usuario.id);
-    await recarregar();
+    const caso = await api.abrirCaso(alerta.id);
+    invalidar("menu/casos", "menu/alertas", "casos", "casos/contagem", "alertas", "painel/alertas");
     setAbrindo(false);
-    router.push(`/painel/casos/${caso.id}`);
+    ir(`/painel/casos/${caso.id}`);
   }
 
   return (
     <>
-      <Button
-        variant="ghost"
-        size="sm"
-        className="text-muted-foreground mb-4 -ml-2"
-        onClick={() => router.push("/painel/colaboradores")}
-      >
-        <ArrowLeftIcon /> Colaboradores
-      </Button>
+      {voltar}
 
       <header className="mb-6 flex flex-wrap items-start gap-4">
         <Avatar className="size-14">
@@ -132,11 +128,9 @@ function Conteudo() {
             {nomeUnidade(pessoa.unidadeId)}
           </p>
           <div className="mt-2 flex flex-wrap gap-2 text-xs">
-            <Badge variant="muted">CPF {cpfOculto(pessoa.cpf)}</Badge>
+            <Badge variant="muted">CPF {pessoa.cpfMascarado}</Badge>
             {pessoa.admissaoEm && <Badge variant="muted">Admissão {dataBR(pessoa.admissaoEm)}</Badge>}
-            <Badge variant="muted">
-              {sequenciaCheckIn(dados.checkins)} dias seguidos de check-in
-            </Badge>
+            <Badge variant="muted">{dados.sequenciaCheckin} dias seguidos de check-in</Badge>
           </div>
         </div>
       </header>
@@ -144,25 +138,27 @@ function Conteudo() {
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <CartaoKpi
           rotulo="Queixas em 30 dias"
-          valor={q30.length}
-          detalhe={`${dados.queixas.length} em ${JANELA} dias`}
+          valor={dados.queixas30Dias}
+          detalhe={`${dados.queixasJanela} em ${dados.janelaDias} dias`}
         />
         <CartaoKpi
           rotulo="Intensidade média"
-          valor={q30.length ? num(intensidade30) : "—"}
+          valor={dados.queixas30Dias ? num(dados.intensidadeMedia30Dias) : "—"}
           detalhe="Escala de 1 a 5"
-          destaque={intensidade30 >= 4 ? "alerta" : undefined}
+          destaque={dados.intensidadeMedia30Dias >= 4 ? "alerta" : undefined}
         />
         <CartaoKpi
           rotulo="Check-ins em 30 dias"
-          valor={c30.length}
-          detalhe={`${c30.filter((c) => c.estado === "bem").length} dias sem desconforto`}
+          valor={dados.checkins30Dias}
+          detalhe={`${dados.checkinsBem30Dias} dias sem desconforto`}
           subirEhRuim={false}
         />
         <CartaoKpi
           rotulo="Alertas ativos"
           valor={dados.alertas.length}
-          detalhe={dados.casos.length ? `${dados.casos.length} caso(s) registrado(s)` : "Nenhum caso aberto"}
+          detalhe={
+            dados.casos.length ? `${dados.casos.length} caso(s) registrado(s)` : "Nenhum caso aberto"
+          }
           destaque={dados.alertas.length > 0 ? "alerta" : "ok"}
         />
       </div>
@@ -175,9 +171,7 @@ function Conteudo() {
               <CartaoAlerta
                 key={a.id}
                 alerta={a}
-                identificar
-                casoId={casoPorAlerta.get(a.id)}
-                onAbrirCaso={casoPorAlerta.get(a.id) || abrindo ? undefined : abrirCaso}
+                onAbrirCaso={a.casoId || abrindo ? undefined : abrirCaso}
               />
             ))}
           </div>
@@ -195,9 +189,9 @@ function Conteudo() {
                 className="hover:bg-accent flex flex-wrap items-center gap-3 rounded-lg border px-4 py-3 transition-colors"
               >
                 <span className="text-muted-foreground text-sm tnum">#{c.numero}</span>
-                <span className="flex-1 text-sm font-medium">{c.titulo}</span>
+                <span className="flex-1 text-sm font-medium">{tituloCaso(c, nomeSetor)}</span>
                 <span className="text-muted-foreground text-xs">
-                  {c.acoes.filter((a) => a.concluida).length}/{c.acoes.length} ações
+                  {c.acoesConcluidas}/{c.acoesTotais} ações
                 </span>
                 <SeloStatus status={c.status} />
               </Link>
@@ -209,14 +203,14 @@ function Conteudo() {
       <div className="mt-6 grid gap-4 lg:grid-cols-3">
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm">Mapa dos últimos {JANELA} dias</CardTitle>
+            <CardTitle className="text-sm">Mapa dos últimos {dados.janelaDias} dias</CardTitle>
           </CardHeader>
           <CardContent className="pt-0">
             <div className="flex justify-center">
               <SeletorVista vista={vista} onChange={setVista} />
             </div>
             <div className="mx-auto mt-3 max-w-[170px]">
-              <MapaCorporal vista={vista} calor={dados.calor} />
+              <MapaCorporal vista={vista} calor={montarCalor(dados.calor)} />
             </div>
           </CardContent>
         </Card>
@@ -239,7 +233,7 @@ function Conteudo() {
             <CardTitle className="text-sm">Evolução semanal</CardTitle>
           </CardHeader>
           <CardContent className="pt-0">
-            {dados.queixas.length === 0 ? (
+            {dados.queixasJanela === 0 ? (
               <p className="text-muted-foreground py-10 text-center text-sm">Sem registros.</p>
             ) : (
               <GraficoTendencia serie={dados.serie} porSemana altura={200} />
@@ -249,45 +243,56 @@ function Conteudo() {
       </div>
 
       <section className="mt-8">
-        <h2 className="mb-3 text-lg font-semibold">Registros ({dados.queixas.length})</h2>
-        {dados.queixas.length === 0 ? (
-          <EstadoVazio titulo="Nenhuma queixa registrada nos últimos 90 dias" />
+        <h2 className="mb-3 text-lg font-semibold">
+          Registros ({registros.dados?.total ?? dados.queixasJanela})
+        </h2>
+        {(registros.dados?.total ?? 0) === 0 ? (
+          <EstadoVazio titulo={`Nenhuma queixa registrada nos últimos ${dados.janelaDias} dias`} />
         ) : (
-          <ol className="space-y-2">
-            {dados.queixas.map((q) => (
-              <li key={q.id}>
-                <Card>
-                  <CardContent className="flex flex-wrap items-start gap-3 py-3.5">
-                    <span
-                      className={cn(
-                        "grid size-9 shrink-0 place-items-center rounded-lg text-sm font-bold text-white",
-                        fundoIntensidade(q.intensidade),
-                      )}
-                      title={`Intensidade ${q.intensidade} de 5`}
-                    >
-                      {q.intensidade}
-                    </span>
-                    <div className="min-w-48 flex-1">
-                      <p className="font-medium">{rotuloRegiao(q.regiao, q.lado)}</p>
-                      <p className="text-muted-foreground text-xs">
-                        {dataBR(q.data)} · {dataRelativa(q.data)}
-                      </p>
-                      {q.observacao && (
-                        <p className="text-muted-foreground mt-1.5 border-l-2 pl-2.5 text-sm italic">
-                          “{q.observacao}”
+          <>
+            <ol className="space-y-2">
+              {registros.dados?.itens.map((q) => (
+                <li key={q.id}>
+                  <Card>
+                    <CardContent className="flex flex-wrap items-start gap-3 py-3.5">
+                      <span
+                        className={cn(
+                          "grid size-9 shrink-0 place-items-center rounded-lg text-sm font-bold text-white",
+                          fundoIntensidade(q.intensidade),
+                        )}
+                        title={`Intensidade ${q.intensidade} de 5`}
+                      >
+                        {q.intensidade}
+                      </span>
+                      <div className="min-w-48 flex-1">
+                        <p className="font-medium">{rotuloRegiao(q.regiao, q.lado)}</p>
+                        <p className="text-muted-foreground text-xs">
+                          {dataBR(q.data)} · {dataRelativa(q.data)}
                         </p>
-                      )}
-                    </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      <Badge variant="muted">{TIPO_DOR_LABEL[q.tipo]}</Badge>
-                      <Badge variant="muted">{AGRAVANTE_LABEL[q.agrava]}</Badge>
-                      <Badge variant="muted">Trabalho: {RELACAO_LABEL[q.relacaoTrabalho]}</Badge>
-                    </div>
-                  </CardContent>
-                </Card>
-              </li>
-            ))}
-          </ol>
+                        {q.observacao && (
+                          <p className="text-muted-foreground mt-1.5 border-l-2 pl-2.5 text-sm italic">
+                            “{q.observacao}”
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        <Badge variant="muted">{TIPO_DOR_LABEL[q.tipo]}</Badge>
+                        <Badge variant="muted">{AGRAVANTE_LABEL[q.agrava]}</Badge>
+                        <Badge variant="muted">Trabalho: {RELACAO_LABEL[q.relacaoTrabalho]}</Badge>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </li>
+              ))}
+            </ol>
+            <Paginador
+              total={registros.dados?.total ?? 0}
+              pagina={pagina}
+              porPagina={POR_PAGINA}
+              onPagina={setPagina}
+              rotulo="registros"
+            />
+          </>
         )}
       </section>
 

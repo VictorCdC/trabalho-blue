@@ -1,110 +1,112 @@
 "use client";
 
 import * as React from "react";
-import { api, type Snapshot } from "./api";
-import { alertasColetivos, alertasIndividuais, ordenarAlertas } from "./analytics";
-import type { Alerta, Usuario } from "./types";
+import { api } from "./api";
+import { limparCache, useRecurso } from "./recurso";
+import type { Estrutura, UsuarioEu } from "./types";
 
-/* Sessão e dados do tenant ativo.
+/* Sessão e estrutura do tenant ativo.
 
-   Atenção ao trocar o mock por HTTP: aqui o snapshot traz a empresa inteira
-   porque o mock roda no navegador. O backend real deve devolver apenas o
-   que o perfil pode ver — um colaborador jamais deve receber as queixas
-   dos colegas. */
+   O que mudou: a sessão não vive mais no localStorage. O cookie é httpOnly e
+   quem sabe quem está logado é o servidor — `api.eu()` é a única forma de
+   descobrir, e um F5 recomeça por ela. O que resta no navegador é a escolha
+   de qual empresa cliente o superuser está olhando, que não é credencial:
+   para quem pertence a uma empresa o backend ignora esse valor.
 
-const CHAVE = "blue.sessao";
+   E não existe mais snapshot. Este provider carrega só a estrutura
+   organizacional — dezenas de linhas que toda tela usa para trocar id por
+   nome. Queixa, check-in e caso vêm por tela, já recortados. */
 
-/** Quem não pertence a uma empresa (plataforma) entra na primeira ativa —
-    sem isso o painel abriria sem tenant e ficaria em branco. */
-async function empresaInicial(u: Usuario): Promise<string | null> {
-  if (u.empresaId) return u.empresaId;
-  const lista = await api.listarEmpresas();
-  return lista.find((x) => x.empresa.ativa)?.empresa.id ?? lista[0]?.empresa.id ?? null;
-}
+const CHAVE_EMPRESA = "blue.empresa";
 
 interface SessaoCtx {
   carregando: boolean;
-  usuario: Usuario | null;
+  usuario: UsuarioEu | null;
   /** empresa cujo painel está aberto — o superuser pode trocar */
   empresaAtivaId: string | null;
   entrar(cpf: string, senha: string): Promise<string | null>;
-  sair(): void;
+  sair(): Promise<void>;
   trocarEmpresa(id: string): void;
 }
 
 const SessaoContexto = React.createContext<SessaoCtx | null>(null);
 
+function lerEmpresaSalva(): string | null {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem(CHAVE_EMPRESA);
+}
+
+/** Quem não pertence a uma empresa (plataforma) entra na primeira ativa —
+    sem isso o painel abriria sem tenant e ficaria em branco. */
+async function empresaInicial(u: UsuarioEu): Promise<string | null> {
+  if (u.empresaId) return u.empresaId;
+  const salva = lerEmpresaSalva();
+  if (salva) return salva;
+  const lista = await api.empresas();
+  return lista.find((x) => x.empresa.ativa)?.empresa.id ?? lista[0]?.empresa.id ?? null;
+}
+
 export function SessaoProvider({ children }: { children: React.ReactNode }) {
   const [carregando, setCarregando] = React.useState(true);
-  const [usuario, setUsuario] = React.useState<Usuario | null>(null);
+  const [usuario, setUsuario] = React.useState<UsuarioEu | null>(null);
   const [empresaAtivaId, setEmpresaAtivaId] = React.useState<string | null>(null);
 
-  // sessão persiste no navegador; lida depois da hidratação
+  // o cliente HTTP precisa do tenant antes de qualquer requisição das telas;
+  // por isso a sincronização acontece na renderização, e não num efeito
+  api.usarEmpresa(empresaAtivaId);
+
+  const adotar = React.useCallback(async (u: UsuarioEu) => {
+    const alvo = await empresaInicial(u);
+    api.usarEmpresa(alvo);
+    setUsuario(u);
+    setEmpresaAtivaId(alvo);
+  }, []);
+
   React.useEffect(() => {
     let cancelado = false;
-    const bruto = typeof window === "undefined" ? null : window.localStorage.getItem(CHAVE);
-    if (!bruto) {
-      setCarregando(false);
-      return;
-    }
-    try {
-      const { usuarioId, empresaId } = JSON.parse(bruto) as {
-        usuarioId: string;
-        empresaId: string | null;
-      };
-      api
-        .usuarioPorId(usuarioId)
-        .then(async (u) => {
-          if (!u) return;
-          const alvo = empresaId ?? (await empresaInicial(u));
-          if (cancelado) return;
-          setUsuario(u);
-          setEmpresaAtivaId(alvo);
-        })
-        .finally(() => {
-          if (!cancelado) setCarregando(false);
-        });
-    } catch {
-      window.localStorage.removeItem(CHAVE);
-      setCarregando(false);
-    }
+    api
+      .eu()
+      .then(async (u) => {
+        if (!u || cancelado) return;
+        await adotar(u);
+      })
+      .finally(() => {
+        if (!cancelado) setCarregando(false);
+      });
     return () => {
       cancelado = true;
     };
-  }, []);
-
-  const persistir = React.useCallback((u: Usuario | null, empresaId: string | null) => {
-    if (typeof window === "undefined") return;
-    if (!u) window.localStorage.removeItem(CHAVE);
-    else window.localStorage.setItem(CHAVE, JSON.stringify({ usuarioId: u.id, empresaId }));
-  }, []);
+  }, [adotar]);
 
   const entrar = React.useCallback(
     async (cpf: string, senha: string) => {
-      const r = await api.login(cpf, senha);
-      if ("erro" in r) return r.erro;
-      const empresaId = await empresaInicial(r.usuario);
-      setUsuario(r.usuario);
-      setEmpresaAtivaId(empresaId);
-      persistir(r.usuario, empresaId);
-      return null;
+      try {
+        await adotar(await api.entrar(cpf, senha));
+        return null;
+      } catch (erro) {
+        return erro instanceof Error ? erro.message : "Não foi possível entrar.";
+      }
     },
-    [persistir],
+    [adotar],
   );
 
-  const sair = React.useCallback(() => {
+  const sair = React.useCallback(async () => {
+    await api.sair();
+    window.localStorage.removeItem(CHAVE_EMPRESA);
+    // o cache de navegação vive em memória e não é do próximo usuário da aba
+    limparCache();
     setUsuario(null);
     setEmpresaAtivaId(null);
-    persistir(null, null);
-  }, [persistir]);
+  }, []);
 
-  const trocarEmpresa = React.useCallback(
-    (id: string) => {
-      setEmpresaAtivaId(id);
-      persistir(usuario, id);
-    },
-    [persistir, usuario],
-  );
+  const trocarEmpresa = React.useCallback((id: string) => {
+    window.localStorage.setItem(CHAVE_EMPRESA, id);
+    api.usarEmpresa(id);
+    // as chaves do cache não carregam o tenant: o painel da empresa anterior
+    // não pode aparecer enquanto o da nova carrega
+    limparCache();
+    setEmpresaAtivaId(id);
+  }, []);
 
   const valor = React.useMemo<SessaoCtx>(
     () => ({ carregando, usuario, empresaAtivaId, entrar, sair, trocarEmpresa }),
@@ -120,76 +122,61 @@ export function useSessao(): SessaoCtx {
   return c;
 }
 
-/* ------------------------------- dados -------------------------------- */
+/* ----------------------------- estrutura ------------------------------ */
 
 interface DadosCtx {
   carregando: boolean;
-  snapshot: Snapshot | null;
-  alertas: Alerta[];
-  recarregar(): Promise<void>;
+  estrutura: Estrutura | null;
+  recarregar(): void;
   nomeUnidade(id: string | null): string;
   nomeSetor(id: string | null): string;
   nomeCargo(id: string | null): string;
-  colaborador(id: string): Usuario | undefined;
-  unidadeDoSetor(setorId: string): string;
+  unidadeDoSetor(setorId: string | null): string;
+  /** setores de uma unidade — os filtros encadeados da barra */
+  setoresDaUnidade(unidadeId: string | null): { id: string; nome: string }[];
+  cargosDoSetor(setorId: string | null, unidadeId: string | null): { id: string; nome: string }[];
 }
 
 const DadosContexto = React.createContext<DadosCtx | null>(null);
 
 export function DadosProvider({ children }: { children: React.ReactNode }) {
-  const { empresaAtivaId } = useSessao();
-  const [snapshot, setSnapshot] = React.useState<Snapshot | null>(null);
-  const [carregando, setCarregando] = React.useState(false);
+  const { empresaAtivaId, usuario } = useSessao();
+  // o colaborador não abre o painel e não tem `painel:ver`: pedir a estrutura
+  // para ele seria um 403 garantido a cada carga da tela inicial
+  const precisa = Boolean(empresaAtivaId && usuario && usuario.role !== "colaborador");
 
-  const carregar = React.useCallback(async (empresaId: string) => {
-    setCarregando(true);
-    try {
-      setSnapshot(await api.snapshot(empresaId));
-    } finally {
-      setCarregando(false);
-    }
-  }, []);
-
-  React.useEffect(() => {
-    if (!empresaAtivaId) {
-      setSnapshot(null);
-      return;
-    }
-    void carregar(empresaAtivaId);
-  }, [empresaAtivaId, carregar]);
-
-  const recarregar = React.useCallback(async () => {
-    if (empresaAtivaId) await carregar(empresaAtivaId);
-  }, [empresaAtivaId, carregar]);
-
-  const alertas = React.useMemo<Alerta[]>(() => {
-    if (!snapshot) return [];
-    return [
-      ...alertasIndividuais(snapshot.queixas),
-      ...alertasColetivos(snapshot.queixas, snapshot.usuarios, snapshot.setores),
-    ].sort(ordenarAlertas);
-  }, [snapshot]);
+  const { dados, carregando, recarregar } = useRecurso(() => api.estrutura(), [empresaAtivaId], {
+    ativo: precisa,
+  });
 
   const valor = React.useMemo<DadosCtx>(() => {
-    const unidades = new Map((snapshot?.unidades ?? []).map((u) => [u.id, u]));
-    const setores = new Map((snapshot?.setores ?? []).map((s) => [s.id, s]));
-    const cargos = new Map((snapshot?.cargos ?? []).map((c) => [c.id, c]));
-    const usuarios = new Map((snapshot?.usuarios ?? []).map((u) => [u.id, u]));
+    const unidades = new Map((dados?.unidades ?? []).map((u) => [u.id, u]));
+    const setores = new Map((dados?.setores ?? []).map((s) => [s.id, s]));
+    const cargos = new Map((dados?.cargos ?? []).map((c) => [c.id, c]));
     return {
       carregando,
-      snapshot,
-      alertas,
+      estrutura: dados,
       recarregar,
       nomeUnidade: (id) => (id ? (unidades.get(id)?.nome ?? "—") : "—"),
       nomeSetor: (id) => (id ? (setores.get(id)?.nome ?? "—") : "—"),
       nomeCargo: (id) => (id ? (cargos.get(id)?.nome ?? "—") : "—"),
-      colaborador: (id) => usuarios.get(id),
       unidadeDoSetor: (setorId) => {
-        const s = setores.get(setorId);
+        const s = setorId ? setores.get(setorId) : undefined;
         return s ? (unidades.get(s.unidadeId)?.nome ?? "—") : "—";
       },
+      setoresDaUnidade: (unidadeId) =>
+        (dados?.setores ?? []).filter((s) => !unidadeId || s.unidadeId === unidadeId),
+      cargosDoSetor: (setorId, unidadeId) => {
+        if (setorId) return (dados?.cargos ?? []).filter((c) => c.setorId === setorId);
+        const daUnidade = new Set(
+          (dados?.setores ?? [])
+            .filter((s) => !unidadeId || s.unidadeId === unidadeId)
+            .map((s) => s.id),
+        );
+        return (dados?.cargos ?? []).filter((c) => daUnidade.has(c.setorId));
+      },
     };
-  }, [snapshot, alertas, carregando, recarregar]);
+  }, [dados, carregando, recarregar]);
 
   return <DadosContexto.Provider value={valor}>{children}</DadosContexto.Provider>;
 }

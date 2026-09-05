@@ -30,18 +30,46 @@ export interface ItemNav {
   permissao: Permissao;
 }
 
-export const NAV_PAINEL: ItemNav[] = [
-  { href: "/painel", label: "Visão geral", icone: "LayoutDashboard", permissao: "painel:ver" },
-  { href: "/painel/alertas", label: "Alertas", icone: "TriangleAlert", permissao: "alertas:ver" },
-  { href: "/painel/casos", label: "Casos", icone: "ClipboardList", permissao: "casos:ver" },
-  { href: "/painel/setores", label: "Setores", icone: "Building2", permissao: "dados:agregados" },
-  { href: "/painel/colaboradores", label: "Colaboradores", icone: "Users", permissao: "colaboradores:ver_lista" },
-  { href: "/painel/relatorios", label: "Relatórios", icone: "ChartColumn", permissao: "relatorios:ver" },
-  { href: "/painel/estrutura", label: "Estrutura", icone: "Network", permissao: "estrutura:gerenciar" },
-  { href: "/painel/usuarios", label: "Usuários e acessos", icone: "ShieldCheck", permissao: "usuarios:gerenciar" },
-  { href: "/plataforma", label: "Empresas clientes", icone: "Briefcase", permissao: "empresas:gerenciar" },
+export interface GrupoNav {
+  titulo: string;
+  itens: ItemNav[];
+}
+
+/* Nove itens em lista corrida não dizem que "Casos" é trabalho do dia e
+   "Estrutura" é configuração. Os grupos são a ordem em que o trabalho
+   acontece: o que pede ação hoje, o que explica o porquê, o que se ajusta de
+   vez em quando. */
+export const NAV_PAINEL: GrupoNav[] = [
+  {
+    titulo: "Acompanhamento",
+    itens: [
+      { href: "/painel", label: "Visão geral", icone: "LayoutDashboard", permissao: "painel:ver" },
+      { href: "/painel/alertas", label: "Alertas", icone: "TriangleAlert", permissao: "alertas:ver" },
+      { href: "/painel/casos", label: "Casos", icone: "ClipboardList", permissao: "casos:ver" },
+    ],
+  },
+  {
+    titulo: "Análise",
+    itens: [
+      { href: "/painel/setores", label: "Setores", icone: "Building2", permissao: "dados:agregados" },
+      { href: "/painel/colaboradores", label: "Colaboradores", icone: "Users", permissao: "colaboradores:ver_lista" },
+      { href: "/painel/relatorios", label: "Relatórios", icone: "ChartColumn", permissao: "relatorios:ver" },
+    ],
+  },
+  {
+    titulo: "Administração",
+    itens: [
+      { href: "/painel/estrutura", label: "Estrutura", icone: "Network", permissao: "estrutura:gerenciar" },
+      { href: "/painel/usuarios", label: "Usuários e acessos", icone: "ShieldCheck", permissao: "usuarios:gerenciar" },
+      { href: "/plataforma", label: "Empresas clientes", icone: "Briefcase", permissao: "empresas:gerenciar" },
+    ],
+  },
 ];
 
-export function navPara(role: Role | undefined): ItemNav[] {
-  return NAV_PAINEL.filter((i) => pode(role, i.permissao));
+/** Grupo sem item visível não vira título vazio: o RH não vê "Administração". */
+export function navPara(role: Role | undefined): GrupoNav[] {
+  return NAV_PAINEL.map((grupo) => ({
+    ...grupo,
+    itens: grupo.itens.filter((i) => pode(role, i.permissao)),
+  })).filter((grupo) => grupo.itens.length > 0);
 }

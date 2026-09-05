@@ -8,10 +8,11 @@ sem nome.
 
 ```
 BLUE/
-├── frontend/               # Next.js 15 — telas completas, hoje sobre API mock
-├── backend/                # FastAPI — fundações (auth, RBAC, tenant, auditoria)
+├── frontend/               # Next.js 15 — telas completas, sobre a API do backend
+├── backend/                # FastAPI — auth, RBAC, tenant, auditoria e domínio clínico
 │   ├── app/
 │   ├── alembic/
+│   ├── scripts/semear.py   # dados de demonstração no Postgres
 │   ├── tests/
 │   └── requirements*.in    # locks gerados por scripts/compilar-deps.sh
 ├── rbac/permissoes.json    # fonte única do contrato de permissões
@@ -47,17 +48,41 @@ As migrations rodam num serviço próprio (`migracoes`) que executa
 
 ## Estado atual
 
-O frontend está completo sobre a API mock em `frontend/src/lib/api/mock.ts` —
-nenhuma tela depende do backend ainda.
+Frontend e backend estão ligados: não há mais API mock. Cada tela pede ao
+servidor o recorte de que precisa, já filtrado, já agregado e já paginado.
 
-O backend tem as fundações e três rotas que as exercitam (`/auth/login`,
-`/auth/eu`, `/usuarios`, `/empresas`). O domínio clínico (queixa, check-in,
-caso, estrutura organizacional) ainda não foi modelado: ele entra junto com os
-endpoints que o expõem.
+O que isso mudou, além de desempenho:
 
-Para ligar o frontend no backend, implemente `BlueApi` em
-`frontend/src/lib/api/http.ts` e troque a linha do export em
-`frontend/src/lib/api/index.ts`. Nenhum componente muda.
+- **O RH deixou de receber dado identificado.** Antes o navegador baixava o
+  histórico inteiro da empresa e a tela escondia o que o perfil não podia ver.
+  Agora o servidor não envia: um alerta individual chega ao RH sem a pessoa.
+- **O k-mínimo passou a existir de fato.** `app/agregacao.py` estava escrito e
+  testado, mas não havia agregado no servidor para suprimir. Agora todo recorte
+  com menos de `K_MINIMO_AGREGACAO` pessoas volta vazio, por qualquer rota.
+- **A sessão saiu do localStorage.** O cookie httpOnly já existia; o frontend é
+  que guardava o id do usuário em paralelo. Quem responde "quem está logado"
+  agora é `/auth/eu`.
+
+Onde a conta acontece:
+
+| Antes (navegador) | Agora (servidor) |
+|---|---|
+| `lib/analytics.ts` | `backend/app/indicadores.py` (SQL) |
+| `useMemo` de alertas em `sessao.tsx` | `backend/app/alertas.py` |
+| `filter` por unidade/setor/cargo em `lib/filtros.ts` | `backend/app/recorte.py` (`WHERE`) |
+| `slice` de listas | `LIMIT`/`OFFSET` (`backend/app/paginacao.py`) |
+
+## Dados de demonstração
+
+O banco sobe vazio. Para plantar a demonstração:
+
+```bash
+cd backend && python -m scripts.semear
+```
+
+O script imprime os CPFs de cada perfil (senha `blue1234`) e recusa rodar com
+`AMBIENTE=producao`. É a porta do antigo `frontend/src/lib/mock/seed.ts`, com o
+mesmo gerador pseudoaleatório — os números batem com os da versão em memória.
 
 ## Como o projeto se protege
 
@@ -68,7 +93,8 @@ Regras em `CLAUDE.md`, cobertas por teste:
 - leitura de dado identificado vai para uma trilha que nem a aplicação
   consegue reescrever;
 - agregado de grupo pequeno demais não é divulgado (`K_MINIMO_AGREGACAO`);
-- o espelho do contrato de permissões não pode divergir de `rbac/`.
+- o espelho do contrato de permissões não pode divergir de `rbac/`;
+- toda listagem é paginada, e o `total` vem do banco.
 
 ## Verificar
 

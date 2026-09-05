@@ -4,11 +4,14 @@ Next.js 15 (App Router) + React 19 + TypeScript + Tailwind v4 + shadcn/ui.
 
 ```bash
 npm install
-npm run dev        # http://localhost:3000
+npm run dev        # http://localhost:3000 — precisa do backend em :8000
 npm run build
 npm run typecheck
 npm run lint
 ```
+
+O frontend não tem mais dados próprios: tudo vem da API. Sem o backend no ar as
+telas ficam vazias. Para popular a demonstração, veja `backend/scripts/semear.py`.
 
 ## Perfis e acessos
 
@@ -24,6 +27,10 @@ A matriz completa é gerada de `/rbac/permissoes.json` para `src/lib/rbac-gerado
 (`python rbac/gerar.py`) — a mesma fonte que o backend consome. `src/lib/rbac.ts`
 reexporta a matriz e acrescenta o que é só de navegação.
 **A guarda no cliente é conveniência de navegação; a autorização real é do backend.**
+
+Desde a migração para a API, isso deixou de ser só uma frase: o servidor não
+envia o que o perfil não pode ver. Um alerta individual chega ao RH com
+`colaboradorId: null` — não é a tela que esconde o nome, é que ele não veio.
 
 ## Estrutura
 
@@ -45,17 +52,40 @@ src/
 │   ├── painel/                 # KPIs, filtros, gráficos, cartão de alerta
 │   └── ui/                     # shadcn/ui
 └── lib/
-    ├── api/                    # BlueApi (contrato) + mock em memória
-    ├── analytics.ts            # regras de alerta e agregações
+    ├── api/                    # BlueApi (contrato) + cliente HTTP
+    ├── recurso.ts              # useRecurso: busca, recarga e corrida de pedidos
     ├── rbac.ts                 # permissões por perfil
-    ├── sessao.tsx              # sessão + dados do tenant ativo
+    ├── sessao.tsx              # sessão + estrutura do tenant ativo
     ├── filtros.ts              # recorte unidade/setor/cargo/período
-    └── mock/seed.ts            # dados fictícios determinísticos
+    ├── casos.ts                # título do caso, derivado de região e setor
+    └── types.ts                # o contrato — espelha backend/app/esquemas.py
 ```
+
+## Como os dados chegam
+
+Todo acesso passa por `src/lib/api/index.ts`, que exporta o cliente HTTP de
+`http.ts`. Três regras valem para a pasta inteira:
+
+- **A tela não agrega.** KPIs, série temporal, mapa de calor, resumo por setor e
+  por cargo vêm somados do backend (`/painel/resumo`, `/painel/setores`,
+  `/painel/cargos`). Não existe mais `analytics.ts`: aquelas funções viraram
+  consultas SQL em `backend/app/indicadores.py`.
+- **Toda listagem é paginada.** `Pagina<T>` traz `itens`, `total`, `limit` e
+  `offset`; o componente `Paginador` desenha o rodapé a partir do `total` do
+  servidor. Nenhuma tela recebe a lista inteira para cortar em memória.
+- **A sessão é um cookie httpOnly.** O cliente manda `credentials: "include"` e
+  nada mais; não há token em `localStorage`. Quem sabe quem está logado é
+  `/auth/eu`. O que sobra no navegador é a empresa que o superuser escolheu
+  olhar, que não é credencial.
+
+O filtro de unidade/setor/cargo/período (`useFiltros`) devolve um `Recorte` que
+vira query string. Trocar de setor refaz a consulta; antes refiltrava um array.
 
 ## Regras de alerta
 
-Em `src/lib/analytics.ts` → `REGRAS` (fixas nesta versão, viram parâmetro por empresa depois):
+Os limiares vêm de `/alertas/regras`, porque quem os aplica é o servidor
+(`backend/app/alertas.py`) — a tela pede para poder explicar a regra ao usuário
+sem manter uma segunda cópia dos números.
 
 - **Individual:** 3+ registros na mesma região **e lado**, pela mesma pessoa, em 30 dias.
 - **Coletivo:** 20%+ do setor relatando a mesma região em 30 dias, com no mínimo 3 pessoas.
@@ -65,31 +95,26 @@ Métricas de painel evitam saturar: `percentualRecorrente` (quem cruzou o limite
 `taxaDesconforto` (dias com queixa / dias com check-in) discriminam bem mais que
 "quem já relatou algo", que chega a 100% em qualquer setor num mês.
 
-## Dados: como ligar no backend
+## Supressão de grupo pequeno
 
-Todo acesso a dados passa por `src/lib/api/index.ts`:
+Quando o recorte tem menos que `K_MINIMO_AGREGACAO` pessoas, o servidor devolve
+`suprimido: true` e nada mais — nem a contagem do grupo. As telas mostram
+`<RecorteSuprimido />` em vez de zeros. O mesmo vale linha a linha em
+`/painel/setores` e `/painel/cargos`.
 
-```ts
-export const api: BlueApi = mockApi;   // ← troque por httpApi
-```
-
-Crie `src/lib/api/http.ts` implementando `BlueApi` com `fetch` em
-`process.env.NEXT_PUBLIC_API_URL` e mude essa linha. **Nenhum componente muda.**
-
-Dois pontos de atenção nessa troca:
-
-1. `snapshot(empresaId)` hoje devolve a empresa inteira porque o mock roda no
-   navegador. O backend real deve devolver só o que o perfil pode ver — um
-   colaborador nunca deve receber as queixas dos colegas.
-2. Os dados do mock vivem em memória e voltam ao estado inicial a cada recarga
-   da página. Ids de caso são derivados do alerta, então links continuam válidos.
+Isso vale para todos os perfis, inclusive o SESMT: a regra não abre exceção por
+papel, e quem tem `dados:identificados` chega ao dado da pessoa pela ficha, que
+é o caminho auditado.
 
 ## Ambiente de demonstração
 
-A tela de login lista um atalho por perfil (senha `blue1234`) **apenas quando
-`NEXT_PUBLIC_AMBIENTE=demo`** — em `.env.development` para o `npm run dev`, e no
-compose. Qualquer outro valor esconde os atalhos. "Restaurar dados", na barra
-lateral, recria o conjunto fictício.
+Os dados fictícios são plantados pelo backend:
+
+```bash
+cd backend && python -m scripts.semear
+```
+
+O script imprime os CPFs de cada perfil; a senha de todos é `blue1234`.
 
 Dados plantados para a demonstração:
 

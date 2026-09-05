@@ -7,21 +7,22 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { cpfOculto, dataBR, iniciais } from "@/lib/format";
-import { useDados, useSessao } from "@/lib/sessao";
+import { useSessao } from "@/lib/sessao";
 
 export default function PaginaPerfil() {
   const router = useRouter();
   const { usuario, sair } = useSessao();
-  const { snapshot, nomeCargo, nomeSetor, nomeUnidade } = useDados();
 
   if (!usuario) return null;
 
+  // os nomes da lotação vêm resolvidos em /auth/eu: o colaborador não precisa
+  // (nem pode) baixar a estrutura da empresa para ver o próprio cadastro
   const linhas: Array<[string, string]> = [
     ["CPF", cpfOculto(usuario.cpf)],
-    ["Empresa", snapshot?.empresa.nome ?? "—"],
-    ["Unidade", nomeUnidade(usuario.unidadeId)],
-    ["Setor", nomeSetor(usuario.setorId)],
-    ["Cargo", nomeCargo(usuario.cargoId)],
+    ["Empresa", usuario.empresaNome ?? "—"],
+    ["Unidade", usuario.unidadeNome ?? "—"],
+    ["Setor", usuario.setorNome ?? "—"],
+    ["Cargo", usuario.cargoNome ?? "—"],
     ["Admissão", usuario.admissaoEm ? dataBR(usuario.admissaoEm) : "—"],
   ];
 
@@ -33,7 +34,7 @@ export default function PaginaPerfil() {
         </Avatar>
         <div className="min-w-0">
           <h1 className="truncate text-xl font-semibold tracking-tight">{usuario.nome}</h1>
-          <p className="text-muted-foreground text-sm">{nomeCargo(usuario.cargoId)}</p>
+          <p className="text-muted-foreground text-sm">{usuario.cargoNome ?? "—"}</p>
         </div>
       </header>
 
@@ -61,14 +62,16 @@ export default function PaginaPerfil() {
             <ShieldCheckIcon className="text-sev-ok mt-0.5 size-4 shrink-0" />
             <p>
               <strong>SESMT e médico do trabalho</strong> veem seu nome e seu histórico — é assim que
-              conseguem te chamar para uma avaliação e ajustar seu posto.
+              conseguem te chamar para uma avaliação e ajustar seu posto. Cada abertura da sua ficha
+              fica registrada na trilha de auditoria.
             </p>
           </div>
           <div className="flex gap-3">
             <EyeOffIcon className="text-muted-foreground mt-0.5 size-4 shrink-0" />
             <p>
               <strong>RH e gestores</strong> veem apenas números por setor e por cargo, sem nome
-              nenhum. Seu registro não vai para avaliação de desempenho.
+              nenhum — o servidor não envia a identificação para esses perfis. Seu registro não vai
+              para avaliação de desempenho.
             </p>
           </div>
         </CardContent>
@@ -78,8 +81,7 @@ export default function PaginaPerfil() {
         variant="outline"
         className="w-full"
         onClick={() => {
-          sair();
-          router.replace("/login");
+          void sair().then(() => router.replace("/login"));
         }}
       >
         <LogOutIcon /> Sair da conta

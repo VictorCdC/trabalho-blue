@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
+import { Link } from "@/components/link";
 import { CheckCircle2Icon, LoaderCircleIcon, PencilIcon } from "lucide-react";
 import { MapaCorporal, OrientacaoLados, SeletorVista } from "@/components/mapa-corporal";
 import { Button } from "@/components/ui/button";
@@ -18,7 +18,7 @@ import {
   fundoIntensidade,
 } from "@/lib/format";
 import { rotuloRegiao } from "@/lib/regioes";
-import { useDados, useSessao } from "@/lib/sessao";
+import { useSessao } from "@/lib/sessao";
 import type {
   Agravante,
   InicioDor,
@@ -38,7 +38,6 @@ interface Selecao {
 
 export default function PaginaRegistrar() {
   const { usuario } = useSessao();
-  const { recarregar } = useDados();
 
   const [vista, setVista] = React.useState<Vista>("frente");
   const [selecao, setSelecao] = React.useState<Selecao | null>(null);
@@ -80,8 +79,8 @@ export default function PaginaRegistrar() {
   async function enviar() {
     if (!usuario || !selecao || !intensidade || !tipo || !inicio || !agrava || !relacao) return;
     setEnviando(true);
+    // sem `colaboradorId`: quem registra é sempre quem está na sessão
     await api.registrarQueixa({
-      colaboradorId: usuario.id,
       regiao: selecao.regiao,
       lado: selecao.lado,
       intensidade,
@@ -91,7 +90,6 @@ export default function PaginaRegistrar() {
       relacaoTrabalho: relacao,
       observacao: observacao.trim(),
     });
-    await recarregar();
     setEnviando(false);
     setPronto(true);
     window.scrollTo({ top: 0, behavior: "smooth" });

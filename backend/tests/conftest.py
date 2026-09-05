@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterator
+from datetime import timedelta
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
@@ -36,12 +37,32 @@ from sqlalchemy.orm import Session  # noqa: E402
 from alembic import command  # noqa: E402
 from app.db import obter_sessao  # noqa: E402
 from app.main import app  # noqa: E402
-from app.models import Empresa, Usuario  # noqa: E402
+from app.models import (  # noqa: E402
+    Cargo,
+    CheckIn,
+    Empresa,
+    Queixa,
+    Setor,
+    Unidade,
+    Usuario,
+)
+from app.periodo import hoje  # noqa: E402
 from app.rbac_gerado import Role  # noqa: E402
 from app.seguranca import hash_senha  # noqa: E402
 
 SENHA_PADRAO = "senha-de-teste-123"
-TABELAS = ("log_auditoria", "usuario", "empresa")
+TABELAS = (
+    "log_auditoria",
+    "acao_caso",
+    "caso",
+    "queixa",
+    "checkin",
+    "usuario",
+    "cargo",
+    "setor",
+    "unidade",
+    "empresa",
+)
 
 
 def _criar_banco_se_faltar() -> None:
@@ -161,3 +182,105 @@ def autenticar(cliente: TestClient):
         return cliente
 
     return entrar
+
+
+# ------------------------- domínio clínico nos testes -------------------------
+
+
+@pytest.fixture
+def estrutura(sessao: Session, empresa: Empresa) -> dict[str, str]:
+    """Uma unidade, dois setores e dois cargos — o mínimo para filtrar."""
+    unidade = Unidade(empresa_id=empresa.id, nome="Matriz", cidade="Fortaleza", uf="CE")
+    sessao.add(unidade)
+    sessao.flush()
+    estoque = Setor(empresa_id=empresa.id, unidade_id=unidade.id, nome="Estoque")
+    producao = Setor(empresa_id=empresa.id, unidade_id=unidade.id, nome="Producao")
+    sessao.add_all([estoque, producao])
+    sessao.flush()
+    conferente = Cargo(empresa_id=empresa.id, setor_id=estoque.id, nome="Conferente")
+    montador = Cargo(empresa_id=empresa.id, setor_id=producao.id, nome="Montador")
+    sessao.add_all([conferente, montador])
+    sessao.commit()
+    return {
+        "unidade": unidade.id,
+        "estoque": estoque.id,
+        "producao": producao.id,
+        "conferente": conferente.id,
+        "montador": montador.id,
+    }
+
+
+@pytest.fixture
+def criar_colaborador(sessao: Session, empresa: Empresa, estrutura: dict[str, str]):
+    """Fábrica de colaborador lotado. Devolve o Usuario já persistido."""
+    contador = {"n": 500}
+
+    def criar(nome: str = "", *, setor: str = "estoque", cargo: str = "conferente") -> Usuario:
+        contador["n"] += 1
+        u = Usuario(
+            empresa_id=empresa.id,
+            nome=nome or f"Colaborador {contador['n']}",
+            cpf=f"{contador['n']:011d}",
+            email=None,
+            role="colaborador",
+            senha_hash=hash_senha(SENHA_PADRAO),
+            ativo=True,
+            unidade_id=estrutura["unidade"],
+            setor_id=estrutura[setor],
+            cargo_id=estrutura[cargo],
+            tentativas_falhas=0,
+        )
+        sessao.add(u)
+        sessao.commit()
+        return u
+
+    return criar
+
+
+@pytest.fixture
+def criar_queixa(sessao: Session, empresa: Empresa):
+    """Fábrica de queixa. `atras` é a distância em dias até hoje."""
+
+    def criar(
+        colaborador: Usuario,
+        *,
+        atras: int = 0,
+        regiao: str = "lombar",
+        lado: str = "na",
+        intensidade: int = 3,
+        relacao: str = "sim",
+    ) -> Queixa:
+        q = Queixa(
+            empresa_id=empresa.id,
+            colaborador_id=colaborador.id,
+            data=hoje() - timedelta(days=atras),
+            regiao=regiao,
+            lado=lado,
+            intensidade=intensidade,
+            tipo="peso",
+            inicio="hoje",
+            agrava="levantar_peso",
+            relacao_trabalho=relacao,
+            observacao="",
+        )
+        sessao.add(q)
+        sessao.commit()
+        return q
+
+    return criar
+
+
+@pytest.fixture
+def criar_checkin(sessao: Session, empresa: Empresa):
+    def criar(colaborador: Usuario, *, atras: int = 0, estado: str = "bem") -> CheckIn:
+        c = CheckIn(
+            empresa_id=empresa.id,
+            colaborador_id=colaborador.id,
+            data=hoje() - timedelta(days=atras),
+            estado=estado,
+        )
+        sessao.add(c)
+        sessao.commit()
+        return c
+
+    return criar

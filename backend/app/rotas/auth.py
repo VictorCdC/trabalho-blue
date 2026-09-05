@@ -19,7 +19,7 @@ from app.autorizacao import usuario_atual
 from app.config import obter_config
 from app.db import obter_sessao
 from app.esquemas import LoginEntrada, UsuarioEu
-from app.models import Usuario
+from app.models import Cargo, Empresa, Setor, Unidade, Usuario
 from app.seguranca import HASH_DESCARTAVEL, definir_cookie, limpar_cookie, senha_confere
 
 roteador = APIRouter(prefix="/auth", tags=["auth"])
@@ -33,7 +33,7 @@ def login(
     requisicao: Request,
     resposta: Response,
     sessao: Session = Depends(obter_sessao),
-) -> Usuario:
+) -> UsuarioEu:
     config = obter_config()
     agora = datetime.now(UTC)
     usuario = sessao.scalars(select(Usuario).where(Usuario.cpf == entrada.cpf)).one_or_none()
@@ -95,13 +95,33 @@ def login(
     )
     sessao.commit()
     definir_cookie(resposta, usuario.id)
-    return usuario
+    return _com_contexto(sessao, usuario)
+
+
+def _com_contexto(sessao: Session, usuario: Usuario) -> UsuarioEu:
+    """O usuário com os nomes da própria lotação resolvidos."""
+    saida = UsuarioEu.model_validate(usuario)
+    if usuario.empresa_id:
+        empresa = sessao.get(Empresa, usuario.empresa_id)
+        saida.empresa_nome = empresa.nome if empresa else None
+    if usuario.unidade_id:
+        unidade = sessao.get(Unidade, usuario.unidade_id)
+        saida.unidade_nome = unidade.nome if unidade else None
+    if usuario.setor_id:
+        setor = sessao.get(Setor, usuario.setor_id)
+        saida.setor_nome = setor.nome if setor else None
+    if usuario.cargo_id:
+        cargo = sessao.get(Cargo, usuario.cargo_id)
+        saida.cargo_nome = cargo.nome if cargo else None
+    return saida
 
 
 @roteador.get("/eu", response_model=UsuarioEu)
-def eu(usuario: Usuario = Depends(usuario_atual)) -> Usuario:
+def eu(
+    usuario: Usuario = Depends(usuario_atual), sessao: Session = Depends(obter_sessao)
+) -> UsuarioEu:
     """Quem está autenticado. Não exige permissão: todo perfil pode se ver."""
-    return usuario
+    return _com_contexto(sessao, usuario)
 
 
 @roteador.post("/sair", status_code=status.HTTP_204_NO_CONTENT)

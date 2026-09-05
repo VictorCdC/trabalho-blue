@@ -5,6 +5,7 @@ import { EyeOffIcon, TrendingDownIcon, TrendingUpIcon, XIcon } from "lucide-reac
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
   SelectContent,
@@ -13,10 +14,45 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { classesSeveridade, num, pct, SEVERIDADE_LABEL, STATUS_CASO_LABEL } from "@/lib/format";
-import { PERIODOS, TODOS, type Recorte } from "@/lib/filtros";
+import { PERIODOS, TODOS, type UsoFiltro } from "@/lib/filtros";
 import { useDados } from "@/lib/sessao";
 import type { Severidade, StatusCaso } from "@/lib/types";
 import { cn } from "@/lib/utils";
+
+/* ---------------------------- carregamento ---------------------------- */
+
+/** O corpo de uma tela do painel enquanto os números não chegam.
+
+    Antes a tela inteira virava um retângulo cinza — sumiam o título e a barra
+    de filtros junto com os dados, e trocar o período apagava da tela o
+    controle que acabou de ser usado. O cabeçalho e os filtros não dependem
+    da resposta; só o miolo espera. */
+export function EsqueletoPainel() {
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {[0, 1, 2, 3].map((i) => (
+          <Skeleton key={i} className="h-28 rounded-xl" />
+        ))}
+      </div>
+      <Skeleton className="h-72 rounded-xl" />
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Skeleton className="h-64 rounded-xl" />
+        <Skeleton className="h-64 rounded-xl" />
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------ tabelas ------------------------------- */
+
+/** Primeira coluna fixa na rolagem horizontal.
+
+    Setores e Colaboradores têm dez colunas: no tablet, rolar para ver a taxa
+    de desconforto tira o nome do setor da tela e a linha vira uma fileira de
+    números sem sujeito. `bg-inherit` para acompanhar o realce da linha em vez
+    de tapá-lo — e por isso a `TableRow` precisa de `bg-card`. */
+export const COLUNA_FIXA = "bg-inherit sticky left-0 z-10";
 
 /* ---------------------------- cabeçalho ------------------------------- */
 
@@ -142,24 +178,23 @@ export function corProporcao(p: number): string {
 
 /* ----------------------------- filtros -------------------------------- */
 
-export function BarraFiltros({ recorte }: { recorte: Recorte }) {
-  const { snapshot } = useDados();
-  const { filtro, setFiltro, ativo, limpar } = recorte;
+export function BarraFiltros({ filtros }: { filtros: UsoFiltro }) {
+  const { estrutura, setoresDaUnidade, cargosDoSetor } = useDados();
+  const { filtro, setFiltro, ativo, limpar } = filtros;
 
-  const unidades = snapshot?.unidades ?? [];
-  const setores = (snapshot?.setores ?? []).filter(
-    (s) => filtro.unidadeId === TODOS || s.unidadeId === filtro.unidadeId,
-  );
-  const idsSetor = new Set(setores.map((s) => s.id));
-  const cargos = (snapshot?.cargos ?? []).filter(
-    (c) => (filtro.setorId === TODOS ? idsSetor.has(c.setorId) : c.setorId === filtro.setorId),
-  );
+  const unidades = estrutura?.unidades ?? [];
+  const unidadeEscolhida = filtro.unidadeId === TODOS ? null : filtro.unidadeId;
+  const setores = setoresDaUnidade(unidadeEscolhida);
+  const cargos = cargosDoSetor(filtro.setorId === TODOS ? null : filtro.setorId, unidadeEscolhida);
 
   return (
     <div className="flex flex-wrap items-center gap-2">
       <Select
         value={filtro.unidadeId}
-        onValueChange={(v) => setFiltro((f) => ({ ...f, unidadeId: v }))}
+        // trocar de unidade invalida setor e cargo, como trocar de setor
+        // invalida o cargo. Era um efeito no useFiltros, que na montagem
+        // apagava o recorte que tinha acabado de vir da URL.
+        onValueChange={(v) => setFiltro((f) => ({ ...f, unidadeId: v, setorId: TODOS, cargoId: TODOS }))}
       >
         <SelectTrigger size="sm" className="min-w-40">
           <SelectValue />
@@ -227,6 +262,56 @@ export function BarraFiltros({ recorte }: { recorte: Recorte }) {
   );
 }
 
+/** Rodapé de paginação.
+
+    O `total` vem do servidor: a tela nunca tem a lista inteira para contar, que
+    é justamente o ponto da paginação física. */
+export function Paginador({
+  total,
+  pagina,
+  porPagina,
+  onPagina,
+  rotulo = "itens",
+}: {
+  total: number;
+  pagina: number;
+  porPagina: number;
+  onPagina: (n: number) => void;
+  rotulo?: string;
+}) {
+  const paginas = Math.ceil(total / porPagina);
+  if (paginas <= 1) return null;
+
+  const inicio = pagina * porPagina + 1;
+  const fim = Math.min(total, (pagina + 1) * porPagina);
+
+  return (
+    <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+      <p className="text-muted-foreground text-sm tnum">
+        {inicio}–{fim} de {total} {rotulo}
+      </p>
+      <div className="flex gap-2">
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={pagina === 0}
+          onClick={() => onPagina(pagina - 1)}
+        >
+          Anterior
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={pagina >= paginas - 1}
+          onClick={() => onPagina(pagina + 1)}
+        >
+          Próxima
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 /* --------------------------- privacidade ------------------------------ */
 
 export function AvisoAnonimo({ children }: { children?: React.ReactNode }) {
@@ -240,6 +325,24 @@ export function AvisoAnonimo({ children }: { children?: React.ReactNode }) {
             o SESMT — é o que a LGPD exige para dado de saúde.
           </>
         )}
+      </p>
+    </div>
+  );
+}
+
+/** O recorte ficou pequeno demais para divulgar qualquer número.
+
+    Não é erro nem tela vazia: é a regra de k-mínimo do servidor agindo, e o
+    usuário precisa saber que existe dado ali — só não em quantidade que possa
+    ser publicada sem apontar para uma pessoa. */
+export function RecorteSuprimido() {
+  return (
+    <div className="flex flex-col items-center rounded-xl border border-dashed px-6 py-16 text-center">
+      <EyeOffIcon className="text-muted-foreground size-8" />
+      <p className="mt-3 font-medium">Recorte pequeno demais para divulgar</p>
+      <p className="text-muted-foreground mt-1 max-w-md text-sm">
+        Combinando unidade, setor e cargo sobraram poucas pessoas — nesse tamanho um número
+        agregado descreveria alguém em particular. Amplie o recorte para ver os indicadores.
       </p>
     </div>
   );

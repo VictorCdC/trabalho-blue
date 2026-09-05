@@ -1,9 +1,13 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
 import { BriefcaseIcon, LoaderCircleIcon, PlusIcon } from "lucide-react";
-import { CabecalhoPagina, CartaoKpi, EstadoVazio } from "@/components/painel/comuns";
+import {
+  CabecalhoPagina,
+  CartaoKpi,
+  EsqueletoPainel,
+  EstadoVazio,
+} from "@/components/painel/comuns";
 import { Protegido } from "@/components/protegido";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -34,7 +38,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { api, type ResumoEmpresa } from "@/lib/api";
+import { api } from "@/lib/api";
+import { useNavegar } from "@/lib/carregando";
+import { useRecurso } from "@/lib/recurso";
 import { dataBR, mascaraCNPJ, pct, PLANO_LABEL } from "@/lib/format";
 import { useSessao } from "@/lib/sessao";
 import type { Plano } from "@/lib/types";
@@ -48,35 +54,49 @@ export default function PaginaPlataforma() {
 }
 
 function Conteudo() {
-  const router = useRouter();
+  const { ir } = useNavegar();
   const { trocarEmpresa } = useSessao();
-  const [linhas, setLinhas] = React.useState<ResumoEmpresa[] | null>(null);
   const [dialogo, setDialogo] = React.useState(false);
-
-  const carregar = React.useCallback(async () => {
-    setLinhas(await api.listarEmpresas());
-  }, []);
-
-  React.useEffect(() => {
-    void carregar();
-  }, [carregar]);
+  const { dados, carregando, recarregar } = useRecurso(() => api.empresas(), [], {
+    chave: "empresas",
+  });
 
   async function alternarAtiva(id: string, ativa: boolean) {
     await api.atualizarEmpresa(id, { ativa });
-    await carregar();
+    recarregar();
   }
 
   async function mudarPlano(id: string, plano: Plano) {
     await api.atualizarEmpresa(id, { plano });
-    await carregar();
+    recarregar();
   }
 
   function acessar(id: string) {
     trocarEmpresa(id);
-    router.push("/painel");
+    ir("/painel");
   }
 
-  if (!linhas) return <div className="bg-muted h-96 animate-pulse rounded-xl" />;
+  const moldura = (
+    <CabecalhoPagina
+      titulo="Empresas clientes"
+      descricao="Administração da plataforma. Aqui você gerencia contratos e acessos — não o dado clínico dos colaboradores."
+    >
+      <Button size="sm" onClick={() => setDialogo(true)}>
+        <PlusIcon /> Nova empresa
+      </Button>
+    </CabecalhoPagina>
+  );
+
+  if (carregando || !dados) {
+    return (
+      <>
+        {moldura}
+        <EsqueletoPainel />
+      </>
+    );
+  }
+
+  const linhas = dados;
 
   const ativas = linhas.filter((l) => l.empresa.ativa);
   const totalColaboradores = linhas.reduce((a, l) => a + l.colaboradores, 0);
@@ -85,14 +105,7 @@ function Conteudo() {
 
   return (
     <>
-      <CabecalhoPagina
-        titulo="Empresas clientes"
-        descricao="Administração da plataforma. Aqui você gerencia contratos e acessos — não o dado clínico dos colaboradores."
-      >
-        <Button size="sm" onClick={() => setDialogo(true)}>
-          <PlusIcon /> Nova empresa
-        </Button>
-      </CabecalhoPagina>
+      {moldura}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <CartaoKpi
@@ -141,7 +154,7 @@ function Conteudo() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {linhas.map(({ empresa, colaboradores, queixas30d, casosAbertos: abertos }) => {
+                {linhas.map(({ empresa, colaboradores, queixas30Dias, casosAbertos: abertos }) => {
                   const ocupacao = empresa.colaboradoresContratados
                     ? (colaboradores / empresa.colaboradoresContratados) * 100
                     : 0;
@@ -150,7 +163,7 @@ function Conteudo() {
                       <TableCell className="min-w-52">
                         <span className="block font-medium">{empresa.nome}</span>
                         <span className="text-muted-foreground text-xs whitespace-nowrap">
-                          Cliente desde {dataBR(empresa.criadaEm)}
+                          Cliente desde {empresa.criadaEm ? dataBR(empresa.criadaEm) : "—"}
                         </span>
                       </TableCell>
                       <TableCell className="text-muted-foreground tnum text-sm whitespace-nowrap">
@@ -181,7 +194,7 @@ function Conteudo() {
                           </span>
                         </div>
                       </TableCell>
-                      <TableCell className="text-right tnum">{queixas30d}</TableCell>
+                      <TableCell className="text-right tnum">{queixas30Dias}</TableCell>
                       <TableCell className="text-right tnum">{abertos}</TableCell>
                       <TableCell>
                         {empresa.ativa ? (
@@ -221,24 +234,13 @@ function Conteudo() {
       </p>
 
       {dialogo && (
-        <DialogoNovaEmpresa
-          onFechar={() => setDialogo(false)}
-          onSalvo={async () => {
-            await carregar();
-          }}
-        />
+        <DialogoNovaEmpresa onFechar={() => setDialogo(false)} onSalvo={recarregar} />
       )}
     </>
   );
 }
 
-function DialogoNovaEmpresa({
-  onFechar,
-  onSalvo,
-}: {
-  onFechar: () => void;
-  onSalvo: () => Promise<void>;
-}) {
+function DialogoNovaEmpresa({ onFechar, onSalvo }: { onFechar: () => void; onSalvo: () => void }) {
   const [nome, setNome] = React.useState("");
   const [cnpj, setCnpj] = React.useState("");
   const [plano, setPlano] = React.useState<Plano>("essencial");
@@ -250,7 +252,7 @@ function DialogoNovaEmpresa({
   async function salvar() {
     setSalvando(true);
     await api.criarEmpresa(nome.trim(), cnpj, plano, Number(contratados));
-    await onSalvo();
+    onSalvo();
     setSalvando(false);
     onFechar();
   }

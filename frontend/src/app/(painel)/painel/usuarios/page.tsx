@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { LoaderCircleIcon, SearchIcon, UserPlusIcon } from "lucide-react";
-import { CabecalhoPagina, EstadoVazio } from "@/components/painel/comuns";
+import { CabecalhoPagina, EstadoVazio, Paginador } from "@/components/painel/comuns";
 import { Protegido } from "@/components/protegido";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -33,13 +33,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/lib/api";
-import { cpfOculto, mascaraCPF, iniciais, ROLE_DESCRICAO, ROLE_LABEL } from "@/lib/format";
+import { iniciais, mascaraCPF, ROLE_DESCRICAO, ROLE_LABEL } from "@/lib/format";
+import { useDebounce, useRecurso } from "@/lib/recurso";
 import { useDados, useSessao } from "@/lib/sessao";
 import type { Role } from "@/lib/types";
 
 const PAPEIS_ATRIBUIVEIS: Role[] = ["colaborador", "rh", "sesmt", "admin"];
+const POR_PAGINA = 25;
 
 export default function PaginaUsuarios() {
   return (
@@ -50,34 +51,48 @@ export default function PaginaUsuarios() {
 }
 
 function Conteudo() {
-  const { usuario, empresaAtivaId } = useSessao();
-  const { snapshot, recarregar, nomeCargo, nomeSetor, nomeUnidade } = useDados();
+  const { usuario } = useSessao();
+  const { nomeCargo, nomeSetor, nomeUnidade } = useDados();
   const [busca, setBusca] = React.useState("");
-  const [aba, setAba] = React.useState<"todos" | "gestao" | "colaborador">("todos");
+  const [papel, setPapel] = React.useState<Role | "todos">("todos");
+  const [pagina, setPagina] = React.useState(0);
   const [dialogo, setDialogo] = React.useState(false);
   const [erro, setErro] = React.useState<string | null>(null);
 
-  const usuarios = React.useMemo(() => {
-    const termo = busca.trim().toLowerCase();
-    return (snapshot?.usuarios ?? [])
-      .filter((u) => {
-        if (aba === "gestao" && u.role === "colaborador") return false;
-        if (aba === "colaborador" && u.role !== "colaborador") return false;
-        if (!termo) return true;
-        return u.nome.toLowerCase().includes(termo) || u.cpf.includes(termo);
-      })
-      .sort((a, b) => a.nome.localeCompare(b.nome));
-  }, [snapshot, busca, aba]);
+  const termo = useDebounce(busca, 300);
+  const lista = useRecurso(
+    () =>
+      api.usuarios(
+        { role: papel === "todos" ? undefined : papel, busca: termo || undefined },
+        { limit: POR_PAGINA, offset: pagina * POR_PAGINA },
+      ),
+    [papel, termo, pagina],
+  );
 
-  async function alternarAtivo(id: string, ativo: boolean) {
-    await api.atualizarUsuario(id, { ativo });
-    await recarregar();
+  // uma contagem por perfil: o `total` de cada consulta, sem trazer as linhas
+  const contagens = useRecurso(
+    () =>
+      Promise.all(
+        PAPEIS_ATRIBUIVEIS.map((r) =>
+          api.usuarios({ role: r }, { limit: 1 }).then((p) => [r, p.total] as const),
+        ),
+      ).then((pares) => Object.fromEntries(pares) as Record<Role, number>),
+    [lista.dados?.total],
+  );
+
+  React.useEffect(() => setPagina(0), [papel, termo]);
+
+  async function alterar(id: string, patch: { ativo?: boolean; role?: Role }) {
+    setErro(null);
+    try {
+      await api.atualizarUsuario(id, patch);
+      lista.recarregar();
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : "Não foi possível alterar o acesso.");
+    }
   }
 
-  async function mudarPapel(id: string, role: Role) {
-    await api.atualizarUsuario(id, { role });
-    await recarregar();
-  }
+  const itens = lista.dados?.itens ?? [];
 
   return (
     <>
@@ -107,113 +122,118 @@ function Conteudo() {
 
       <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {PAPEIS_ATRIBUIVEIS.map((r) => (
-          <div key={r} className="bg-card rounded-lg border px-4 py-3">
+          <button
+            key={r}
+            type="button"
+            onClick={() => setPapel(papel === r ? "todos" : r)}
+            data-state={papel === r ? "selected" : undefined}
+            className="bg-card data-[state=selected]:border-primary hover:bg-accent rounded-lg border px-4 py-3 text-left transition-colors"
+          >
             <p className="text-sm font-semibold">{ROLE_LABEL[r]}</p>
             <p className="text-muted-foreground mt-0.5 text-xs">{ROLE_DESCRICAO[r]}</p>
-            <p className="mt-1.5 text-lg font-semibold tnum">
-              {(snapshot?.usuarios ?? []).filter((u) => u.role === r).length}
-            </p>
-          </div>
+            <p className="mt-1.5 text-lg font-semibold tnum">{contagens.dados?.[r] ?? "—"}</p>
+          </button>
         ))}
       </div>
 
-      <Tabs value={aba} onValueChange={(v) => setAba(v as typeof aba)} className="mb-5">
-        <TabsList>
-          <TabsTrigger value="todos">Todos</TabsTrigger>
-          <TabsTrigger value="gestao">Gestão</TabsTrigger>
-          <TabsTrigger value="colaborador">Colaboradores</TabsTrigger>
-        </TabsList>
-      </Tabs>
-
-      {usuarios.length === 0 ? (
+      {lista.carregando ? (
+        <div className="bg-muted h-64 animate-pulse rounded-xl" />
+      ) : itens.length === 0 ? (
         <EstadoVazio titulo="Nenhum usuário encontrado" />
       ) : (
-        <Card>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Usuário</TableHead>
-                  <TableHead>CPF</TableHead>
-                  <TableHead>Unidade / Setor</TableHead>
-                  <TableHead>Cargo</TableHead>
-                  <TableHead className="min-w-40">Perfil de acesso</TableHead>
-                  <TableHead className="text-right">Situação</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {usuarios.map((u) => (
-                  <TableRow key={u.id}>
-                    <TableCell>
-                      <div className="flex items-center gap-2.5">
-                        <Avatar className="size-8">
-                          <AvatarFallback className="text-[10px]">
-                            {iniciais(u.nome)}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div>
-                          <span className="block font-medium">{u.nome}</span>
-                          {u.email && (
-                            <span className="text-muted-foreground block text-xs">{u.email}</span>
-                          )}
-                        </div>
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground tnum text-sm">
-                      {cpfOculto(u.cpf)}
-                    </TableCell>
-                    <TableCell className="text-sm">
-                      <span className="block">{nomeSetor(u.setorId)}</span>
-                      <span className="text-muted-foreground text-xs">
-                        {nomeUnidade(u.unidadeId)}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-sm">{nomeCargo(u.cargoId)}</TableCell>
-                    <TableCell>
-                      {u.id === usuario?.id ? (
-                        <Badge variant="secondary">{ROLE_LABEL[u.role]} · você</Badge>
-                      ) : (
-                        <Select value={u.role} onValueChange={(v) => void mudarPapel(u.id, v as Role)}>
-                          <SelectTrigger size="sm" className="w-full">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {PAPEIS_ATRIBUIVEIS.map((r) => (
-                              <SelectItem key={r} value={r}>
-                                {ROLE_LABEL[r]}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {u.id === usuario?.id ? (
-                        <Badge variant="muted">Ativo</Badge>
-                      ) : (
-                        <Button
-                          size="sm"
-                          variant={u.ativo ? "ghost" : "outline"}
-                          onClick={() => void alternarAtivo(u.id, !u.ativo)}
-                        >
-                          {u.ativo ? "Desativar" : "Reativar"}
-                        </Button>
-                      )}
-                    </TableCell>
+        <>
+          <Card>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Usuário</TableHead>
+                    <TableHead>Unidade / Setor</TableHead>
+                    <TableHead>Cargo</TableHead>
+                    <TableHead className="min-w-40">Perfil de acesso</TableHead>
+                    <TableHead className="text-right">Situação</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+                </TableHeader>
+                <TableBody>
+                  {itens.map((u) => (
+                    <TableRow key={u.id}>
+                      <TableCell>
+                        <div className="flex items-center gap-2.5">
+                          <Avatar className="size-8">
+                            <AvatarFallback className="text-[10px]">
+                              {iniciais(u.nome)}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div>
+                            <span className="block font-medium">{u.nome}</span>
+                            {u.email && (
+                              <span className="text-muted-foreground block text-xs">{u.email}</span>
+                            )}
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        <span className="block">{nomeSetor(u.setorId)}</span>
+                        <span className="text-muted-foreground text-xs">
+                          {nomeUnidade(u.unidadeId)}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-sm">{nomeCargo(u.cargoId)}</TableCell>
+                      <TableCell>
+                        {u.id === usuario?.id ? (
+                          <Badge variant="secondary">{ROLE_LABEL[u.role]} · você</Badge>
+                        ) : (
+                          <Select
+                            value={u.role}
+                            onValueChange={(v) => void alterar(u.id, { role: v as Role })}
+                          >
+                            <SelectTrigger size="sm" className="w-full">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {PAPEIS_ATRIBUIVEIS.map((r) => (
+                                <SelectItem key={r} value={r}>
+                                  {ROLE_LABEL[r]}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {u.id === usuario?.id ? (
+                          <Badge variant="muted">Ativo</Badge>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant={u.ativo ? "ghost" : "outline"}
+                            onClick={() => void alterar(u.id, { ativo: !u.ativo })}
+                          >
+                            {u.ativo ? "Desativar" : "Reativar"}
+                          </Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+          <Paginador
+            total={lista.dados?.total ?? 0}
+            pagina={pagina}
+            porPagina={POR_PAGINA}
+            onPagina={setPagina}
+            rotulo="usuários"
+          />
+        </>
       )}
 
       {dialogo && (
         <DialogoNovoUsuario
-          empresaId={empresaAtivaId}
           onFechar={() => setDialogo(false)}
           onErro={setErro}
-          onSalvo={recarregar}
+          onSalvo={lista.recarregar}
         />
       )}
     </>
@@ -221,17 +241,15 @@ function Conteudo() {
 }
 
 function DialogoNovoUsuario({
-  empresaId,
   onFechar,
   onErro,
   onSalvo,
 }: {
-  empresaId: string | null;
   onFechar: () => void;
   onErro: (m: string | null) => void;
-  onSalvo: () => Promise<void>;
+  onSalvo: () => void;
 }) {
-  const { snapshot } = useDados();
+  const { estrutura, setoresDaUnidade, cargosDoSetor } = useDados();
   const [nome, setNome] = React.useState("");
   const [cpf, setCpf] = React.useState("");
   const [nascimento, setNascimento] = React.useState("");
@@ -241,30 +259,29 @@ function DialogoNovoUsuario({
   const [cargoId, setCargoId] = React.useState("");
   const [salvando, setSalvando] = React.useState(false);
 
-  const setores = (snapshot?.setores ?? []).filter((s) => s.unidadeId === unidadeId);
-  const cargos = (snapshot?.cargos ?? []).filter((c) => c.setorId === setorId);
+  const setores = unidadeId ? setoresDaUnidade(unidadeId) : [];
+  const cargos = setorId ? cargosDoSetor(setorId, unidadeId) : [];
 
   const valido =
     nome.trim().length > 2 && cpf.length === 11 && nascimento.length === 10 && unidadeId && setorId;
 
   async function salvar() {
-    if (!empresaId) return;
     onErro(null);
     setSalvando(true);
     try {
       await api.criarUsuario({
-        empresaId,
         nome: nome.trim(),
         cpf,
-        nascimento: new Date(nascimento).toISOString(),
+        // a data de nascimento é a senha do primeiro acesso, e o servidor a exige
+        nascimento,
         email: null,
         role,
         unidadeId,
         setorId,
         cargoId: cargoId || null,
-        admissaoEm: new Date().toISOString(),
+        admissaoEm: null,
       });
-      await onSalvo();
+      onSalvo();
       onFechar();
     } catch (e) {
       onErro(e instanceof Error ? e.message : "Não foi possível criar o usuário.");
@@ -343,7 +360,7 @@ function DialogoNovoUsuario({
                   <SelectValue placeholder="Selecione" />
                 </SelectTrigger>
                 <SelectContent>
-                  {(snapshot?.unidades ?? []).map((u) => (
+                  {(estrutura?.unidades ?? []).map((u) => (
                     <SelectItem key={u.id} value={u.id}>
                       {u.nome}
                     </SelectItem>

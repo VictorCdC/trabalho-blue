@@ -15,10 +15,23 @@ from app.rbac_gerado import PERMISSOES
 
 PAPEIS = list(PERMISSOES)
 
-# endpoint -> permissão exigida
+# endpoint -> permissão exigida. Toda rota GET nova entra aqui: é este teste
+# que garante que rbac/permissoes.json descreve o que o servidor faz.
 ENDPOINTS = {
     "/usuarios": "usuarios:gerenciar",
     "/empresas": "empresas:gerenciar",
+    "/estrutura": "painel:ver",
+    "/painel/resumo": "dados:agregados",
+    "/painel/setores": "dados:agregados",
+    "/painel/cargos": "dados:agregados",
+    "/alertas": "alertas:ver",
+    "/alertas/regras": "alertas:ver",
+    "/colaboradores": "colaboradores:ver_lista",
+    "/casos": "casos:ver",
+    "/casos/contagem": "casos:ver",
+    "/meu/resumo": "queixa:ver_proprias",
+    "/meu/queixas": "queixa:ver_proprias",
+    "/meu/checkins": "queixa:ver_proprias",
 }
 
 
@@ -55,14 +68,12 @@ def test_admin_nao_ve_usuarios_de_outra_empresa(
     criar_usuario("colaborador", empresa_id=outra_empresa.id)
     autenticar(admin)
 
-    ids = {linha["id"] for linha in cliente.get("/usuarios").json()}
+    pagina = cliente.get("/usuarios").json()
 
-    assert len(ids) == 2  # o admin e o colaborador da própria empresa
-    vizinhos = {
-        linha["id"]
-        for linha in cliente.get("/usuarios").json()
-        if linha["nome"].startswith("Usuario colaborador")
-    }
+    assert pagina["total"] == 2  # o admin e o colaborador da própria empresa
+    vizinhos = [
+        linha for linha in pagina["itens"] if linha["nome"].startswith("Usuario colaborador")
+    ]
     assert len(vizinhos) == 1
 
 
@@ -77,7 +88,7 @@ def test_cabecalho_de_empresa_e_ignorado_para_quem_tem_empresa(
     resposta = cliente.get("/usuarios", headers={CABECALHO_EMPRESA: outra_empresa.id})
 
     assert resposta.status_code == 200
-    assert all(linha["id"] == admin.id for linha in resposta.json())
+    assert all(linha["id"] == admin.id for linha in resposta.json()["itens"])
 
 
 def test_superuser_sem_cabecalho_nao_escolhe_tenant_sozinho(
@@ -90,5 +101,5 @@ def test_superuser_sem_cabecalho_nao_escolhe_tenant_sozinho(
 def test_lista_de_usuarios_nao_devolve_cpf(cliente, criar_usuario, empresa, autenticar) -> None:
     """Minimização: a tela de acessos não precisa do CPF de ninguém."""
     autenticar(criar_usuario("admin", empresa_id=empresa.id))
-    (linha,) = cliente.get("/usuarios").json()
+    (linha,) = cliente.get("/usuarios").json()["itens"]
     assert "cpf" not in linha

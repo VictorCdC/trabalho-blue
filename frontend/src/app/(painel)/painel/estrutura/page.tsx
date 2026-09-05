@@ -18,7 +18,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api } from "@/lib/api";
-import { useDados, useSessao } from "@/lib/sessao";
+import { useDados } from "@/lib/sessao";
 
 type Novo =
   | { tipo: "unidade" }
@@ -34,23 +34,22 @@ export default function PaginaEstrutura() {
 }
 
 function Conteudo() {
-  const { empresaAtivaId } = useSessao();
-  const { snapshot, recarregar } = useDados();
+  const { estrutura, recarregar } = useDados();
   const [novo, setNovo] = React.useState<Novo | null>(null);
   const [erro, setErro] = React.useState<string | null>(null);
 
-  const unidades = snapshot?.unidades ?? [];
-  const setores = snapshot?.setores ?? [];
-  const cargos = snapshot?.cargos ?? [];
-  const usuarios = snapshot?.usuarios ?? [];
+  const unidades = estrutura?.unidades ?? [];
+  const setores = estrutura?.setores ?? [];
+  const cargos = estrutura?.cargos ?? [];
 
   async function remover(tipo: "setor" | "cargo", id: string) {
     setErro(null);
     try {
       if (tipo === "setor") await api.removerSetor(id);
       else await api.removerCargo(id);
-      await recarregar();
+      recarregar();
     } catch (e) {
+      // o servidor recusa remover o que esta em uso e diz o porque
       setErro(e instanceof Error ? e.message : "Não foi possível remover.");
     }
   }
@@ -75,9 +74,6 @@ function Conteudo() {
       <div className="space-y-4">
         {unidades.map((u) => {
           const setoresDaUnidade = setores.filter((s) => s.unidadeId === u.id);
-          const pessoasUnidade = usuarios.filter(
-            (x) => x.unidadeId === u.id && x.role === "colaborador",
-          ).length;
 
           return (
             <Card key={u.id}>
@@ -90,7 +86,7 @@ function Conteudo() {
                     <div>
                       <p className="font-semibold">{u.nome}</p>
                       <p className="text-muted-foreground text-sm">
-                        {u.cidade}/{u.uf} · {setoresDaUnidade.length} setores · {pessoasUnidade}{" "}
+                        {u.cidade}/{u.uf} · {setoresDaUnidade.length} setores · {u.colaboradores}{" "}
                         colaboradores
                       </p>
                     </div>
@@ -112,9 +108,7 @@ function Conteudo() {
                   <ul className="space-y-2">
                     {setoresDaUnidade.map((s) => {
                       const cargosDoSetor = cargos.filter((c) => c.setorId === s.id);
-                      const pessoas = usuarios.filter(
-                        (x) => x.setorId === s.id && x.role === "colaborador",
-                      ).length;
+                      const pessoas = s.colaboradores;
                       return (
                         <li key={s.id} className="bg-muted/40 rounded-lg border px-4 py-3">
                           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -154,7 +148,6 @@ function Conteudo() {
                           {cargosDoSetor.length > 0 && (
                             <ul className="mt-2.5 flex flex-wrap gap-1.5">
                               {cargosDoSetor.map((c) => {
-                                const emUso = usuarios.some((x) => x.cargoId === c.id);
                                 return (
                                   <li key={c.id}>
                                     <Badge variant="secondary" className="gap-1 py-1 pr-1">
@@ -162,12 +155,7 @@ function Conteudo() {
                                       <button
                                         type="button"
                                         aria-label={`Remover cargo ${c.nome}`}
-                                        title={
-                                          emUso
-                                            ? "Cargo em uso por colaboradores"
-                                            : "Remover cargo"
-                                        }
-                                        disabled={emUso}
+                                        title="Remover cargo — recusado se houver colaboradores"
                                         onClick={() => void remover("cargo", c.id)}
                                         className="hover:bg-destructive/10 disabled:opacity-30 rounded p-0.5"
                                       >
@@ -190,26 +178,19 @@ function Conteudo() {
         })}
       </div>
 
-      <DialogoNovo
-        novo={novo}
-        empresaId={empresaAtivaId}
-        onFechar={() => setNovo(null)}
-        onSalvo={recarregar}
-      />
+      <DialogoNovo novo={novo} onFechar={() => setNovo(null)} onSalvo={recarregar} />
     </>
   );
 }
 
 function DialogoNovo({
   novo,
-  empresaId,
   onFechar,
   onSalvo,
 }: {
   novo: Novo | null;
-  empresaId: string | null;
   onFechar: () => void;
-  onSalvo: () => Promise<void>;
+  onSalvo: () => void;
 }) {
   const [nome, setNome] = React.useState("");
   const [cidade, setCidade] = React.useState("");
@@ -236,9 +217,9 @@ function DialogoNovo({
 
   async function salvar() {
     setSalvando(true);
-    if (alvo.tipo === "unidade" && empresaId) {
+    if (alvo.tipo === "unidade") {
+      // a empresa vem do escopo da sessao, nao do corpo da requisicao
       await api.criarUnidade({
-        empresaId,
         nome: nome.trim(),
         cidade: cidade.trim(),
         uf: uf.trim().toUpperCase(),
@@ -248,7 +229,7 @@ function DialogoNovo({
     } else if (alvo.tipo === "cargo") {
       await api.criarCargo({ setorId: alvo.setorId, nome: nome.trim() });
     }
-    await onSalvo();
+    onSalvo();
     setSalvando(false);
     onFechar();
   }

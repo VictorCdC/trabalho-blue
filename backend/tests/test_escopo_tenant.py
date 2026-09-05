@@ -14,9 +14,13 @@ from app.db import Base
 
 ROTAS = Path(__file__).resolve().parents[1] / "app" / "rotas"
 
-#: O login acontece antes de existir tenant: ele procura o usuário pelo CPF
-#: no sistema inteiro, e é o único lugar onde isso é legítimo.
-MODULOS_LIBERADOS = {"auth.py"}
+#: Dois módulos leem fora de um tenant, e os dois por definição:
+#:   - auth.py: o login acontece antes de existir tenant, procurando o usuário
+#:     pelo CPF no sistema inteiro;
+#:   - empresas.py: é a área da plataforma, cuja pergunta é justamente "quantos
+#:     colaboradores e casos cada empresa cliente tem". Ela devolve contagem
+#:     agregada por empresa, nunca linha de dado clínico.
+MODULOS_LIBERADOS = {"auth.py", "empresas.py"}
 
 
 def modelos_multitenant() -> set[str]:

@@ -1,8 +1,7 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { Link } from "@/components/link";
 import {
   CheckIcon,
   ChevronRightIcon,
@@ -15,72 +14,66 @@ import {
 import { MapaCorporal, montarCalor } from "@/components/mapa-corporal";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
-import { naJanela, porRegiao, porRegiaoLado, sequenciaCheckIn } from "@/lib/analytics";
-import {
-  dataRelativa,
-  hojeISO,
-  mesmoDia,
-  primeiroNome,
-  rotuloDoDia,
-} from "@/lib/format";
+import { dataRelativa, primeiroNome, rotuloDoDia } from "@/lib/format";
+import { useNavegar } from "@/lib/carregando";
+import { useRecurso } from "@/lib/recurso";
 import { rotuloRegiao } from "@/lib/regioes";
-import { useDados, useSessao } from "@/lib/sessao";
+import { useSessao } from "@/lib/sessao";
 import type { CheckIn, Vista } from "@/lib/types";
 
 export default function PaginaInicio() {
-  const router = useRouter();
+  const { ir } = useNavegar();
   const { usuario } = useSessao();
-  const { snapshot, recarregar } = useDados();
   const [enviando, setEnviando] = React.useState<"bem" | "desconforto" | null>(null);
   const [vista, setVista] = React.useState<Vista>("frente");
 
-  const meu = React.useMemo(() => {
-    if (!snapshot || !usuario) return null;
-    const queixas = snapshot.queixas.filter((q) => q.colaboradorId === usuario.id);
-    const checkins = snapshot.checkins.filter((c) => c.colaboradorId === usuario.id);
-    const caso = snapshot.casos.find(
-      (c) => c.colaboradorId === usuario.id && c.status !== "resolvido",
-    );
-    return { queixas, checkins, caso };
-  }, [snapshot, usuario]);
-
-  const hoje = meu?.checkins.find((c) => mesmoDia(c.data, hojeISO())) ?? null;
+  // uma chamada com o que é meu — e só o que é meu. Antes esta tela recebia o
+  // histórico da empresa inteira e filtrava as próprias linhas no navegador.
+  const { dados, carregando, recarregar } = useRecurso(() => api.meuResumo(), [], {
+    chave: "meu/resumo",
+  });
 
   async function registrar(estado: "bem" | "desconforto") {
-    if (!usuario) return;
-    setEnviando(estado);
     if (estado === "desconforto") {
-      router.push("/registrar");
+      ir("/registrar");
       return;
     }
-    await api.registrarCheckIn(usuario.id, "bem");
-    await recarregar();
+    setEnviando("bem");
+    await api.registrarCheckIn("bem");
+    recarregar();
     setEnviando(null);
   }
 
-  if (!usuario || !meu) {
-    return <div className="bg-muted h-64 animate-pulse rounded-xl" />;
-  }
+  // quem está logado já se sabe pela sessão: a saudação não espera o resumo
+  const saudacao = usuario ? (
+    <header>
+      <p className="text-muted-foreground text-sm">{rotuloDoDia()}</p>
+      <h1 className="text-2xl font-semibold tracking-tight">
+        Olá, {primeiroNome(usuario.nome)}
+      </h1>
+    </header>
+  ) : null;
 
-  const queixas30 = meu.queixas.filter((q) => naJanela(q.data, 30));
-  const checkins30 = meu.checkins.filter((c) => naJanela(c.data, 30));
-  const sequencia = sequenciaCheckIn(meu.checkins);
-  const queixas60 = meu.queixas.filter((q) => naJanela(q.data, 60));
-  const regioes = porRegiao(queixas60);
-  const calor = montarCalor(porRegiaoLado(queixas60));
+  if (!usuario || carregando || !dados) {
+    return (
+      <div className="space-y-5">
+        {saudacao}
+        <Skeleton className="h-64 rounded-xl" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5">
-      <header>
-        <p className="text-muted-foreground text-sm">{rotuloDoDia()}</p>
-        <h1 className="text-2xl font-semibold tracking-tight">
-          Olá, {primeiroNome(usuario.nome)}
-        </h1>
-      </header>
+      {saudacao}
 
-      {hoje ? (
-        <CheckInFeito checkin={hoje} onRefazer={() => registrar("desconforto")} />
+      {dados.checkinHoje ? (
+        <CheckInFeito
+          checkin={dados.checkinHoje}
+          onRefazer={() => void registrar("desconforto")}
+        />
       ) : (
         <Card>
           <CardContent className="space-y-4">
@@ -112,11 +105,7 @@ export default function PaginaInicio() {
                 disabled={enviando !== null}
                 onClick={() => void registrar("desconforto")}
               >
-                {enviando === "desconforto" ? (
-                  <LoaderCircleIcon className="animate-spin" />
-                ) : (
-                  <FrownIcon className="text-sev-4 size-6" />
-                )}
+                <FrownIcon className="text-sev-4 size-6" />
                 <span className="font-semibold">Sinto algum desconforto</span>
               </Button>
             </div>
@@ -124,26 +113,27 @@ export default function PaginaInicio() {
         </Card>
       )}
 
-      {sequencia > 1 && (
+      {dados.sequencia > 1 && (
         <div className="bg-secondary text-secondary-foreground flex items-center gap-2.5 rounded-xl px-4 py-3 text-sm">
           <FlameIcon className="size-4 shrink-0" />
           <span>
-            <strong className="tnum">{sequencia} dias</strong> seguidos registrando. Continue assim —
-            é o histórico que mostra o que está mudando.
+            <strong className="tnum">{dados.sequencia} dias</strong> seguidos registrando. Continue
+            assim — é o histórico que mostra o que está mudando.
           </span>
         </div>
       )}
 
-      {meu.caso && (
+      {dados.casoAtivo && (
         <Card className="border-primary/30">
           <CardContent className="flex gap-3">
             <StethoscopeIcon className="text-primary mt-0.5 size-5 shrink-0" />
             <div className="text-sm">
               <p className="font-semibold">O SESMT está acompanhando você</p>
               <p className="text-muted-foreground mt-1">
-                Seus relatos de {rotuloRegiao(meu.caso.regiao, meu.caso.lado).toLowerCase()} abriram um
-                acompanhamento {dataRelativa(meu.caso.abertoEm)}. Você pode ser chamado para uma
-                avaliação — é prevenção, não avaliação de desempenho.
+                Seus relatos de{" "}
+                {rotuloRegiao(dados.casoAtivo.regiao, dados.casoAtivo.lado).toLowerCase()} abriram um
+                acompanhamento {dataRelativa(dados.casoAtivo.abertoEm)}. Você pode ser chamado para
+                uma avaliação — é prevenção, não avaliação de desempenho.
               </p>
             </div>
           </CardContent>
@@ -151,17 +141,17 @@ export default function PaginaInicio() {
       )}
 
       <div className="grid grid-cols-3 gap-3">
-        <Metrica valor={checkins30.length} rotulo="dias registrados" sufixo="nos últimos 30" />
-        <Metrica valor={queixas30.length} rotulo="com desconforto" sufixo="nos últimos 30" />
+        <Metrica valor={dados.checkins30Dias} rotulo="dias registrados" sufixo="nos últimos 30" />
+        <Metrica valor={dados.queixas30Dias} rotulo="com desconforto" sufixo="nos últimos 30" />
         <Metrica
-          valor={regioes[0] ? rotuloRegiao(regioes[0].regiao, "na") : "—"}
+          valor={dados.regioes60Dias[0] ? rotuloRegiao(dados.regioes60Dias[0].regiao, "na") : "—"}
           rotulo="região mais relatada"
           sufixo="em 60 dias"
           texto
         />
       </div>
 
-      {regioes.length > 0 && (
+      {dados.regioes60Dias.length > 0 && (
         <Card>
           <CardContent>
             <div className="flex items-start justify-between">
@@ -189,10 +179,10 @@ export default function PaginaInicio() {
               </div>
             </div>
             <div className="mx-auto mt-4 max-w-[190px]">
-              <MapaCorporal vista={vista} calor={calor} />
+              <MapaCorporal vista={vista} calor={montarCalor(dados.calor60Dias)} />
             </div>
             <ul className="mt-4 space-y-1.5">
-              {regioes.slice(0, 4).map((r) => (
+              {dados.regioes60Dias.slice(0, 4).map((r) => (
                 <li key={r.regiao} className="flex items-center justify-between text-sm">
                   <span>{rotuloRegiao(r.regiao, "na")}</span>
                   <span className="text-muted-foreground tnum">

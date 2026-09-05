@@ -30,8 +30,17 @@ python rbac/gerar.py --check    # o que a CI roda
 3. **Leitura de dado identificado é auditada** (`app/auditoria.py`). A tabela
    é somente-inserção: o banco recusa UPDATE e DELETE.
 4. **Agregado abaixo de `K_MINIMO_AGREGACAO` não sai** (`app/agregacao.py`).
-   Sem isso, filtrar unidade+setor+cargo reidentifica uma pessoa.
+   Sem isso, filtrar unidade+setor+cargo reidentifica uma pessoa. Vale para
+   todo perfil, inclusive o SESMT: agregado que muda conforme quem pergunta
+   não é agregado. Quem tem `dados:identificados` usa a ficha, que é auditada.
 5. **Sessão é cookie httpOnly**, nunca localStorage.
+6. **Listagem devolve `Pagina`** (`app/paginacao.py`), com `LIMIT`/`OFFSET` no
+   banco e `total` contado lá. Rota que devolve lista crua não escala e não
+   passa por revisão.
+7. **Agregar é do banco.** As somas ficam em `app/indicadores.py` e
+   `app/alertas.py`, não no handler nem no navegador — e ancoradas em
+   `consulta.filtro(Modelo)`, que é o mesmo predicado de tenant da
+   ConsultaEscopada.
 
 A guarda de rota do frontend (`components/protegido.tsx`) é conveniência de
 navegação. A autorização acontece no backend.
@@ -44,6 +53,7 @@ docker compose up --build       # frontend :3000, backend :8000, db :5433
 
 cd backend
 docker compose up -d db && pytest    # testes precisam do Postgres
+python -m scripts.semear            # dados de demonstração (o banco sobe vazio)
 ruff check . && ruff format . && mypy
 
 cd frontend

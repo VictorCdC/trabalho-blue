@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { Link } from "@/components/link";
 import { ArrowRightIcon, UserRoundIcon, UsersRoundIcon } from "lucide-react";
 import { SeloSeveridade } from "@/components/painel/comuns";
 import { Badge } from "@/components/ui/badge";
@@ -13,29 +13,27 @@ import { useDados, useSessao } from "@/lib/sessao";
 import type { Alerta } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-/* Cartão de alerta. `identificar` controla se o nome do colaborador aparece:
-   ligado só para o SESMT. Para os demais perfis o alerta individual vira
+/* Cartão de alerta.
+
+   O nome do colaborador aparece quando o servidor o envia — e ele só envia
+   para quem tem `dados:identificados`. O cartão não decide mais nada sobre
+   isso: para os demais perfis o alerta individual chega sem pessoa e vira
    "um colaborador do setor X", que basta para dimensionar o problema. */
 export function CartaoAlerta({
   alerta,
-  identificar,
-  casoId,
   onAbrirCaso,
   compacto,
 }: {
   alerta: Alerta;
-  identificar: boolean;
-  casoId?: string;
   onAbrirCaso?: (alerta: Alerta) => void;
   compacto?: boolean;
 }) {
-  const { colaborador, nomeSetor, unidadeDoSetor } = useDados();
+  const { nomeSetor, unidadeDoSetor } = useDados();
   const { usuario } = useSessao();
   const podeVerCaso = pode(usuario?.role, "casos:ver");
 
   const coletivo = alerta.kind === "coletivo";
-  const pessoa = alerta.kind === "individual" ? colaborador(alerta.colaboradorId) : undefined;
-  const setorId = coletivo ? alerta.setorId : (pessoa?.setorId ?? null);
+  const setorId = alerta.setorId;
 
   const titulo = coletivo
     ? `${rotuloCurto(alerta.regiao)} em ${nomeSetor(alerta.setorId)}`
@@ -43,9 +41,7 @@ export function CartaoAlerta({
 
   const sujeito = coletivo
     ? `${alerta.afetados} de ${alerta.totalSetor} do setor · ${pct(alerta.percentual)}`
-    : identificar && pessoa
-      ? pessoa.nome
-      : `Um colaborador de ${nomeSetor(setorId)}`;
+    : (alerta.colaboradorNome ?? `Um colaborador de ${nomeSetor(setorId)}`);
 
   const detalhe = coletivo
     ? `Registros nos últimos ${alerta.janelaDias} dias · último ${dataRelativa(alerta.ultimaEm)}`
@@ -86,9 +82,9 @@ export function CartaoAlerta({
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant="muted">{coletivo ? "Coletivo" : "Individual"}</Badge>
           {setorId && <Badge variant="muted">{unidadeDoSetor(setorId)}</Badge>}
-          {casoId && podeVerCaso ? (
+          {alerta.casoId && podeVerCaso ? (
             <Button asChild size="sm" variant="outline" className="ml-auto">
-              <Link href={`/painel/casos/${casoId}`}>
+              <Link href={`/painel/casos/${alerta.casoId}`}>
                 Ver caso <ArrowRightIcon />
               </Link>
             </Button>

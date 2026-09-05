@@ -213,3 +213,36 @@
     filter: drop-shadow(0 0 1px var(--primary)) drop-shadow(0 0 5px var(--primary));
   }
 }
+
+/* Avanço da barra de carregamento (components/barra-carregando.tsx).
+
+   A animação é CSS e não um `setInterval` chamando `setState`: o avanço de
+   `transform` é trabalho de compositor, não custa uma renderização do React
+   a cada 100ms e não gagueja quando a thread principal engasga — que é
+   justamente o que acontece enquanto a rota nova é avaliada.
+
+   A curva é o progresso simulado: 30% imediato para o clique não parecer
+   perdido, 53% em 400ms, 68% em 1,5s, e daí um rastejo contra um teto de 92%
+   que ela nunca alcança sozinha. Quem fecha em 100% é a chegada do
+   conteúdo. */
+@keyframes barra-avanco {
+  from {
+    transform: scaleX(0.3);
+  }
+  to {
+    transform: scaleX(0.92);
+  }
+}
+
+@layer utilities {
+  .barra-avanco {
+    animation: barra-avanco 20s cubic-bezier(0, 0.75, 0.15, 1) forwards;
+  }
+  /* sem movimento: uma barra parada ainda diz que há trabalho acontecendo */
+  @media (prefers-reduced-motion: reduce) {
+    .barra-avanco {
+      animation: none;
+      transform: scaleX(0.5);
+    }
+  }
+}

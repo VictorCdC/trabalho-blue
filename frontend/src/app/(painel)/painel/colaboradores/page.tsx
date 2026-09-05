@@ -1,13 +1,15 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
+import { Link } from "@/components/link";
 import { SearchIcon, UsersRoundIcon } from "lucide-react";
 import {
   AvisoAnonimo,
   BarraFiltros,
   CabecalhoPagina,
+  COLUNA_FIXA,
   EstadoVazio,
+  Paginador,
   SeloIntensidade,
 } from "@/components/painel/comuns";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -22,53 +24,41 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { naJanela, porRegiao } from "@/lib/analytics";
-import { cpfOculto, dataBR, dataRelativa, iniciais } from "@/lib/format";
+import { api } from "@/lib/api";
+import { dataBR, dataRelativa, iniciais } from "@/lib/format";
 import { useFiltros } from "@/lib/filtros";
 import { pode } from "@/lib/rbac";
+import { useDebounce, useRecurso } from "@/lib/recurso";
 import { rotuloRegiao } from "@/lib/regioes";
 import { useDados, useSessao } from "@/lib/sessao";
+import { cn } from "@/lib/utils";
+
+const POR_PAGINA = 25;
 
 export default function PaginaColaboradores() {
   const { usuario } = useSessao();
-  const { alertas, nomeCargo, nomeSetor, nomeUnidade } = useDados();
-  const recorte = useFiltros();
+  const { nomeCargo, nomeSetor, nomeUnidade } = useDados();
+  const filtros = useFiltros();
   const [busca, setBusca] = React.useState("");
+  const [pagina, setPagina] = React.useState(0);
 
   const identificar = pode(usuario?.role, "dados:identificados");
-  const { colaboradores, historicoQueixas, filtro } = recorte;
+  const { filtro, recorte } = filtros;
 
-  const alertasPorPessoa = React.useMemo(() => {
-    const m = new Map<string, number>();
-    for (const a of alertas) {
-      if (a.kind !== "individual") continue;
-      m.set(a.colaboradorId, (m.get(a.colaboradorId) ?? 0) + 1);
-    }
-    return m;
-  }, [alertas]);
+  // a busca vai para o `WHERE`; digitar não refaz conta nenhuma no navegador
+  const termo = useDebounce(busca, 300);
+  const lista = useRecurso(
+    () =>
+      api.colaboradores(recorte, termo || undefined, {
+        limit: POR_PAGINA,
+        offset: pagina * POR_PAGINA,
+      }),
+    [recorte, termo, pagina],
+  );
 
-  const linhas = React.useMemo(() => {
-    const termo = busca.trim().toLowerCase();
-    return colaboradores
-      .filter((c) => !termo || c.nome.toLowerCase().includes(termo) || c.cpf.includes(termo))
-      .map((c) => {
-        const qs = historicoQueixas.filter(
-          (q) => q.colaboradorId === c.id && naJanela(q.data, filtro.dias),
-        );
-        const regioes = porRegiao(qs);
-        return {
-          colaborador: c,
-          queixas: qs.length,
-          intensidadeMedia: regioes.length
-            ? qs.reduce((a, q) => a + q.intensidade, 0) / qs.length
-            : 0,
-          regiaoTop: regioes[0]?.regiao ?? null,
-          ultima: qs.length ? qs.reduce((a, b) => (a.data > b.data ? a : b)).data : null,
-          alertas: alertasPorPessoa.get(c.id) ?? 0,
-        };
-      })
-      .sort((a, b) => b.alertas - a.alertas || b.queixas - a.queixas);
-  }, [colaboradores, historicoQueixas, filtro.dias, busca, alertasPorPessoa]);
+  React.useEffect(() => setPagina(0), [recorte, termo]);
+
+  const linhas = lista.dados?.itens ?? [];
 
   return (
     <>
@@ -92,113 +82,222 @@ export default function PaginaColaboradores() {
       </CabecalhoPagina>
 
       <div className="mb-6">
-        <BarraFiltros recorte={recorte} />
+        <BarraFiltros filtros={filtros} />
       </div>
 
       {!identificar && (
         <AvisoAnonimo>
           Você vê o cadastro (setor, cargo, admissão), mas não as queixas de cada pessoa. Histórico
-          clínico identificado é exclusivo do SESMT.
+          clínico identificado é exclusivo do SESMT — o servidor nem envia esses campos.
         </AvisoAnonimo>
       )}
 
-      {linhas.length === 0 ? (
+      {lista.carregando ? (
+        <div className="bg-muted h-64 animate-pulse rounded-xl" />
+      ) : linhas.length === 0 ? (
         <EstadoVazio
           Icone={UsersRoundIcon}
           titulo="Nenhum colaborador encontrado"
           descricao="Ajuste a busca ou os filtros de unidade, setor e cargo."
         />
       ) : (
-        <Card>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Colaborador</TableHead>
-                  <TableHead>Unidade / Setor</TableHead>
-                  <TableHead>Cargo</TableHead>
-                  {identificar ? (
-                    <>
-                      <TableHead className="text-right">Queixas</TableHead>
-                      <TableHead>Intensidade</TableHead>
-                      <TableHead>Região principal</TableHead>
-                      <TableHead>Último registro</TableHead>
-                      <TableHead className="text-right">Alertas</TableHead>
-                    </>
-                  ) : (
-                    <>
-                      <TableHead>CPF</TableHead>
-                      <TableHead>Admissão</TableHead>
-                    </>
-                  )}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {linhas.map((l) => {
-                  const c = l.colaborador;
-                  const conteudoNome = (
-                    <div className="flex items-center gap-2.5">
-                      <Avatar className="size-8">
-                        <AvatarFallback className="text-[10px]">{iniciais(c.nome)}</AvatarFallback>
-                      </Avatar>
-                      <span className="font-medium">{c.nome}</span>
-                    </div>
-                  );
-                  return (
-                    <TableRow key={c.id} className={identificar ? "cursor-pointer" : undefined}>
-                      <TableCell>
+        <>
+          {/* Do tablet para cima, a tabela; no celular, cartão — ver dez
+              colunas rolando de lado não é ler uma lista. */}
+          <Card className="hidden md:block">
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-card">
+                    <TableHead className={COLUNA_FIXA}>Colaborador</TableHead>
+                    <TableHead>Unidade / Setor</TableHead>
+                    <TableHead>Cargo</TableHead>
+                    {identificar ? (
+                      <>
+                        <TableHead className="text-right">Queixas</TableHead>
+                        <TableHead>Intensidade</TableHead>
+                        <TableHead>Região principal</TableHead>
+                        <TableHead>Último registro</TableHead>
+                        <TableHead className="text-right">Alertas</TableHead>
+                      </>
+                    ) : (
+                      <>
+                        <TableHead>CPF</TableHead>
+                        <TableHead>Admissão</TableHead>
+                      </>
+                    )}
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {linhas.map((c) => {
+                    const conteudoNome = (
+                      <div className="flex items-center gap-2.5">
+                        <Avatar className="size-8">
+                          <AvatarFallback className="text-[10px]">
+                            {iniciais(c.nome)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <span className="font-medium">{c.nome}</span>
+                      </div>
+                    );
+                    return (
+                      <TableRow key={c.id} className={cn("bg-card", identificar && "cursor-pointer")}>
+                        <TableCell className={COLUNA_FIXA}>
+                          {identificar ? (
+                            <Link href={`/painel/colaboradores/${c.id}`}>{conteudoNome}</Link>
+                          ) : (
+                            conteudoNome
+                          )}
+                        </TableCell>
+                        <TableCell className="text-sm">
+                          <span className="block">{nomeSetor(c.setorId)}</span>
+                          <span className="text-muted-foreground text-xs">
+                            {nomeUnidade(c.unidadeId)}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-sm">{nomeCargo(c.cargoId)}</TableCell>
                         {identificar ? (
-                          <Link href={`/painel/colaboradores/${c.id}`}>{conteudoNome}</Link>
+                          <>
+                            <TableCell className="text-right tnum">{c.queixas ?? 0}</TableCell>
+                            <TableCell>
+                              {(c.queixas ?? 0) > 0 ? (
+                                <SeloIntensidade valor={c.intensidadeMedia ?? 0} />
+                              ) : (
+                                "—"
+                              )}
+                            </TableCell>
+                            <TableCell className="text-sm">
+                              {c.regiaoTop ? rotuloRegiao(c.regiaoTop, "na") : "—"}
+                            </TableCell>
+                            <TableCell className="text-muted-foreground text-sm">
+                              {c.ultimaQueixaEm ? dataRelativa(c.ultimaQueixaEm) : "—"}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {(c.alertas ?? 0) > 0 ? (
+                                <Badge
+                                  variant="outline"
+                                  className="bg-sev-5-soft text-sev-5 border-sev-5/30"
+                                >
+                                  {c.alertas}
+                                </Badge>
+                              ) : (
+                                <span className="text-muted-foreground">—</span>
+                              )}
+                            </TableCell>
+                          </>
                         ) : (
-                          conteudoNome
+                          <>
+                            <TableCell className="text-muted-foreground tnum text-sm">
+                              {c.cpfMascarado}
+                            </TableCell>
+                            <TableCell className="text-muted-foreground text-sm">
+                              {c.admissaoEm ? dataBR(c.admissaoEm) : "—"}
+                            </TableCell>
+                          </>
                         )}
-                      </TableCell>
-                      <TableCell className="text-sm">
-                        <span className="block">{nomeSetor(c.setorId)}</span>
-                        <span className="text-muted-foreground text-xs">
-                          {nomeUnidade(c.unidadeId)}
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-sm">{nomeCargo(c.cargoId)}</TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+
+          <div className="space-y-2 md:hidden">
+            {linhas.map((c) => {
+              const cabecalho = (
+                <div className="flex items-center gap-2.5">
+                  <Avatar className="size-9">
+                    <AvatarFallback className="text-[10px]">{iniciais(c.nome)}</AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0">
+                    <p className="truncate font-medium">{c.nome}</p>
+                    <p className="text-muted-foreground truncate text-xs">
+                      {nomeSetor(c.setorId)} · {nomeCargo(c.cargoId)}
+                    </p>
+                  </div>
+                </div>
+              );
+              return (
+                <Card key={c.id}>
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      {identificar ? (
+                        <Link href={`/painel/colaboradores/${c.id}`} className="min-w-0">
+                          {cabecalho}
+                        </Link>
+                      ) : (
+                        cabecalho
+                      )}
+                      {identificar && (c.alertas ?? 0) > 0 && (
+                        <Badge
+                          variant="outline"
+                          className="bg-sev-5-soft text-sev-5 border-sev-5/30 shrink-0"
+                        >
+                          {c.alertas}
+                        </Badge>
+                      )}
+                    </div>
+
+                    <dl className="mt-3 grid grid-cols-3 gap-3">
                       {identificar ? (
                         <>
-                          <TableCell className="text-right tnum">{l.queixas}</TableCell>
-                          <TableCell>
-                            {l.queixas > 0 ? <SeloIntensidade valor={l.intensidadeMedia} /> : "—"}
-                          </TableCell>
-                          <TableCell className="text-sm">
-                            {l.regiaoTop ? rotuloRegiao(l.regiaoTop, "na") : "—"}
-                          </TableCell>
-                          <TableCell className="text-muted-foreground text-sm">
-                            {l.ultima ? dataRelativa(l.ultima) : "—"}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {l.alertas > 0 ? (
-                              <Badge variant="outline" className="bg-sev-5-soft text-sev-5 border-sev-5/30">
-                                {l.alertas}
-                              </Badge>
-                            ) : (
-                              <span className="text-muted-foreground">—</span>
-                            )}
-                          </TableCell>
+                          <div>
+                            <dt className="text-muted-foreground text-[11px] uppercase tracking-wide">
+                              Queixas
+                            </dt>
+                            <dd className="tnum text-sm font-medium">{c.queixas ?? 0}</dd>
+                          </div>
+                          <div>
+                            <dt className="text-muted-foreground text-[11px] uppercase tracking-wide">
+                              Região
+                            </dt>
+                            <dd className="truncate text-sm font-medium">
+                              {c.regiaoTop ? rotuloRegiao(c.regiaoTop, "na") : "—"}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt className="text-muted-foreground text-[11px] uppercase tracking-wide">
+                              Último
+                            </dt>
+                            <dd className="text-sm font-medium">
+                              {c.ultimaQueixaEm ? dataRelativa(c.ultimaQueixaEm) : "—"}
+                            </dd>
+                          </div>
                         </>
                       ) : (
                         <>
-                          <TableCell className="text-muted-foreground tnum text-sm">
-                            {cpfOculto(c.cpf)}
-                          </TableCell>
-                          <TableCell className="text-muted-foreground text-sm">
-                            {c.admissaoEm ? dataBR(c.admissaoEm) : "—"}
-                          </TableCell>
+                          <div className="col-span-2">
+                            <dt className="text-muted-foreground text-[11px] uppercase tracking-wide">
+                              CPF
+                            </dt>
+                            <dd className="tnum text-sm font-medium">{c.cpfMascarado}</dd>
+                          </div>
+                          <div>
+                            <dt className="text-muted-foreground text-[11px] uppercase tracking-wide">
+                              Admissão
+                            </dt>
+                            <dd className="text-sm font-medium">
+                              {c.admissaoEm ? dataBR(c.admissaoEm) : "—"}
+                            </dd>
+                          </div>
                         </>
                       )}
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+                    </dl>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+
+          <Paginador
+            total={lista.dados?.total ?? 0}
+            pagina={pagina}
+            porPagina={POR_PAGINA}
+            onPagina={setPagina}
+            rotulo="colaboradores"
+          />
+        </>
       )}
     </>
   );

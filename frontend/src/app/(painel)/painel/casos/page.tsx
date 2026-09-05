@@ -1,11 +1,12 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
+import { Link } from "@/components/link";
 import { ClipboardListIcon } from "lucide-react";
 import {
   CabecalhoPagina,
   EstadoVazio,
+  Paginador,
   SeloSeveridade,
   SeloStatus,
 } from "@/components/painel/comuns";
@@ -21,10 +22,14 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { api } from "@/lib/api";
+import { tituloCaso } from "@/lib/casos";
 import { dataBR, dataRelativa } from "@/lib/format";
-import { pode } from "@/lib/rbac";
-import { useDados, useSessao } from "@/lib/sessao";
+import { useRecurso } from "@/lib/recurso";
+import { useDados } from "@/lib/sessao";
 import type { StatusCaso } from "@/lib/types";
+
+const POR_PAGINA = 20;
 
 export default function PaginaCasos() {
   return (
@@ -35,19 +40,22 @@ export default function PaginaCasos() {
 }
 
 function Conteudo() {
-  const { usuario } = useSessao();
-  const { snapshot, colaborador, nomeSetor } = useDados();
+  const { nomeSetor } = useDados();
   const [aba, setAba] = React.useState<StatusCaso | "todos">("todos");
+  const [pagina, setPagina] = React.useState(0);
 
-  const identificar = pode(usuario?.role, "dados:identificados");
-  const casos = React.useMemo(
-    () =>
-      [...(snapshot?.casos ?? [])].sort((a, b) => b.atualizadoEm.localeCompare(a.atualizadoEm)),
-    [snapshot],
+  const lista = useRecurso(
+    () => api.casos(aba, { limit: POR_PAGINA, offset: pagina * POR_PAGINA }),
+    [aba, pagina],
+    { chave: "casos" },
   );
+  // as abas contam no banco: a tela nunca teve a lista inteira para somar
+  const contagem = useRecurso(() => api.contagemCasos(), [], { chave: "casos/contagem" });
 
-  const lista = casos.filter((c) => (aba === "todos" ? true : c.status === aba));
-  const contar = (s: StatusCaso) => casos.filter((c) => c.status === s).length;
+  React.useEffect(() => setPagina(0), [aba]);
+
+  const c = contagem.dados;
+  const itens = lista.dados?.itens ?? [];
 
   return (
     <>
@@ -58,86 +66,91 @@ function Conteudo() {
 
       <Tabs value={aba} onValueChange={(v) => setAba(v as StatusCaso | "todos")} className="mb-5">
         <TabsList>
-          <TabsTrigger value="todos">Todos ({casos.length})</TabsTrigger>
-          <TabsTrigger value="aberto">Abertos ({contar("aberto")})</TabsTrigger>
-          <TabsTrigger value="em_andamento">Em andamento ({contar("em_andamento")})</TabsTrigger>
-          <TabsTrigger value="resolvido">Resolvidos ({contar("resolvido")})</TabsTrigger>
+          <TabsTrigger value="todos">Todos ({c?.todos ?? 0})</TabsTrigger>
+          <TabsTrigger value="aberto">Abertos ({c?.aberto ?? 0})</TabsTrigger>
+          <TabsTrigger value="em_andamento">Em andamento ({c?.emAndamento ?? 0})</TabsTrigger>
+          <TabsTrigger value="resolvido">Resolvidos ({c?.resolvido ?? 0})</TabsTrigger>
         </TabsList>
       </Tabs>
 
-      {lista.length === 0 ? (
+      {lista.carregando ? (
+        <div className="bg-muted h-64 animate-pulse rounded-xl" />
+      ) : itens.length === 0 ? (
         <EstadoVazio
           Icone={ClipboardListIcon}
           titulo="Nenhum caso nesta aba"
           descricao="Casos são abertos a partir da tela de alertas, pelo SESMT."
         />
       ) : (
-        <Card>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-16">Nº</TableHead>
-                  <TableHead>Caso</TableHead>
-                  <TableHead>Alvo</TableHead>
-                  <TableHead>Ações</TableHead>
-                  <TableHead>Severidade</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Atualizado</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {lista.map((c) => {
-                  const pessoa = c.colaboradorId ? colaborador(c.colaboradorId) : undefined;
-                  const feitas = c.acoes.filter((a) => a.concluida).length;
-                  return (
-                    <TableRow key={c.id} className="cursor-pointer">
+        <>
+          <Card>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-16">Nº</TableHead>
+                    <TableHead>Caso</TableHead>
+                    <TableHead>Alvo</TableHead>
+                    <TableHead>Ações</TableHead>
+                    <TableHead>Severidade</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Atualizado</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {itens.map((caso) => (
+                    <TableRow key={caso.id} className="cursor-pointer">
                       <TableCell className="text-muted-foreground tnum">
-                        <Link href={`/painel/casos/${c.id}`} className="block">
-                          #{c.numero}
+                        <Link href={`/painel/casos/${caso.id}`} className="block">
+                          #{caso.numero}
                         </Link>
                       </TableCell>
                       <TableCell>
-                        <Link href={`/painel/casos/${c.id}`} className="block font-medium">
-                          {c.titulo}
+                        <Link href={`/painel/casos/${caso.id}`} className="block font-medium">
+                          {tituloCaso(caso, nomeSetor)}
                         </Link>
                         <span className="text-muted-foreground text-xs">
-                          Aberto em {dataBR(c.abertoEm)}
+                          Aberto em {dataBR(caso.abertoEm)}
                         </span>
                       </TableCell>
                       <TableCell>
-                        <Link href={`/painel/casos/${c.id}`} className="block">
+                        <Link href={`/painel/casos/${caso.id}`} className="block">
                           <Badge variant="muted">
-                            {c.origem === "coletivo" ? "Coletivo" : "Individual"}
+                            {caso.origem === "coletivo" ? "Coletivo" : "Individual"}
                           </Badge>
                           <span className="text-muted-foreground mt-1 block text-xs">
-                            {c.origem === "coletivo"
-                              ? nomeSetor(c.setorId)
-                              : identificar && pessoa
-                                ? pessoa.nome
-                                : `Colaborador de ${nomeSetor(pessoa?.setorId ?? null)}`}
+                            {caso.origem === "coletivo"
+                              ? nomeSetor(caso.setorId)
+                              : (caso.colaboradorNome ?? "Colaborador não identificado")}
                           </span>
                         </Link>
                       </TableCell>
                       <TableCell className="text-muted-foreground tnum text-sm">
-                        {feitas}/{c.acoes.length}
+                        {caso.acoesConcluidas}/{caso.acoesTotais}
                       </TableCell>
                       <TableCell>
-                        <SeloSeveridade severidade={c.severidade} />
+                        <SeloSeveridade severidade={caso.severidade} />
                       </TableCell>
                       <TableCell>
-                        <SeloStatus status={c.status} />
+                        <SeloStatus status={caso.status} />
                       </TableCell>
                       <TableCell className="text-muted-foreground text-sm">
-                        {dataRelativa(c.atualizadoEm)}
+                        {dataRelativa(caso.atualizadoEm)}
                       </TableCell>
                     </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+          <Paginador
+            total={lista.dados?.total ?? 0}
+            pagina={pagina}
+            porPagina={POR_PAGINA}
+            onPagina={setPagina}
+            rotulo="casos"
+          />
+        </>
       )}
     </>
   );

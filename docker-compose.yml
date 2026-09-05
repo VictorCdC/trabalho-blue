@@ -14,7 +14,12 @@ services:
       - /app/.next
     environment:
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
-      - NEXT_PUBLIC_AMBIENTE=${NEXT_PUBLIC_AMBIENTE:-demo}
+      # O bind mount acima não propaga eventos de arquivo do host Windows para
+      # dentro do container: o arquivo muda, `next dev` não fica sabendo e
+      # segue servindo o bundle antigo até alguém reiniciar o serviço. Sem
+      # isto se depura código que não é o que está no disco. Em host Linux o
+      # watcher nativo funciona e a sondagem é só CPU gasta — lá, `false`.
+      - WATCHPACK_POLLING=${WATCHPACK_POLLING:-true}
     depends_on:
       backend:
         condition: service_started

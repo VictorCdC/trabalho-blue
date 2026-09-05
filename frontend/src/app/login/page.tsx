@@ -2,14 +2,13 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { ActivityIcon, ArrowRightIcon, LoaderCircleIcon, ShieldCheckIcon } from "lucide-react";
+import { ActivityIcon, LoaderCircleIcon, ShieldCheckIcon } from "lucide-react";
 import { Logo } from "@/components/logo";
 import { BotaoTema } from "@/components/tema";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { api, type LoginDemo } from "@/lib/api";
-import { mascaraCPF, ROLE_DESCRICAO, ROLE_LABEL } from "@/lib/format";
+import { mascaraCPF } from "@/lib/format";
 import { ROTA_INICIAL } from "@/lib/rbac";
 import { useSessao } from "@/lib/sessao";
 
@@ -20,18 +19,14 @@ export default function PaginaLogin() {
   const [senha, setSenha] = React.useState("");
   const [erro, setErro] = React.useState<string | null>(null);
   const [enviando, setEnviando] = React.useState(false);
-  const [demos, setDemos] = React.useState<LoginDemo[]>([]);
-
-  React.useEffect(() => {
-    // atalhos de perfil só existem no ambiente de demonstração
-    if (process.env.NEXT_PUBLIC_AMBIENTE !== "demo") return;
-    void api.loginsDemo().then(setDemos);
-  }, []);
 
   React.useEffect(() => {
     if (!carregando && usuario) router.replace(ROTA_INICIAL[usuario.role]);
   }, [carregando, usuario, router]);
 
+  /* Os atalhos de perfil saíram junto com o mock: eles vinham de uma chamada
+     que listava CPFs válidos, e uma rota dessas não existe contra um backend
+     de verdade. As credenciais da demonstração são impressas pelo seed. */
   async function submeter(cpfEntrada: string, senhaEntrada: string) {
     setErro(null);
     setEnviando(true);
@@ -148,41 +143,6 @@ export default function PaginaLogin() {
             </button>
           </form>
 
-          {/* Atalhos de demonstração */}
-          {demos.length > 0 && (
-            <div className="mt-10 rounded-xl border border-dashed p-4">
-              <p className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
-                Ambiente de demonstração
-              </p>
-              <p className="text-muted-foreground mt-1 text-xs">
-                Entre direto como um dos perfis. Senha de todos: <code className="font-semibold">{demos[0].senha}</code>
-              </p>
-              <div className="mt-3 space-y-1">
-                {demos.map((d) => (
-                  <button
-                    key={d.role}
-                    type="button"
-                    disabled={enviando}
-                    onClick={() => void submeter(d.cpf, d.senha)}
-                    className="hover:bg-accent group flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors disabled:opacity-50"
-                  >
-                    <span className="bg-secondary text-secondary-foreground grid size-8 shrink-0 place-items-center rounded-md text-[11px] font-bold">
-                      {ROLE_LABEL[d.role].slice(0, 2).toUpperCase()}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium">
-                        {ROLE_LABEL[d.role]} · {d.nome}
-                      </span>
-                      <span className="text-muted-foreground block truncate text-xs">
-                        {ROLE_DESCRICAO[d.role]}
-                      </span>
-                    </span>
-                    <ArrowRightIcon className="text-muted-foreground size-4 shrink-0 opacity-0 transition-opacity group-hover:opacity-100" />
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
       </main>
     </div>
