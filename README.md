@@ -28,10 +28,15 @@ BLUE/
 
 - **frontend/** — Next.js 15 + React 19 + TypeScript + Tailwind v4 + shadcn/ui (ver `frontend/README.md`)
 - **backend/** — FastAPI + SQLAlchemy 2 + Alembic, sessão por cookie httpOnly
-- **db** — PostgreSQL 16
+- **db** — PostgreSQL 17 na máquina, fora do compose
 - **rbac/** — matriz de permissões; gera os espelhos de frontend e backend
 
 ## Subir o ambiente
+
+O banco fica fora do compose: é o PostgreSQL da máquina, em
+`localhost:5432`, com `blue_dev` para desenvolver e `blue_teste` para os
+testes. Crie papel e banco antes da primeira subida — o `.env.example` traz os
+dois comandos.
 
 ```bash
 cp .env.example .env        # obrigatório — o compose recusa subir sem
@@ -40,8 +45,12 @@ docker compose up --build
 
 - frontend: http://localhost:3000
 - backend: http://localhost:8000 (`/docs` fora de produção)
-- db: localhost:5433 — porta configurável em `DB_PORTA_HOST`, já que 5432
-  costuma estar tomada por um Postgres instalado na máquina
+- db: localhost:5432, na máquina. O contêiner o alcança por
+  `host.docker.internal`, e é só por isso que existem duas URLs no `.env`
+  apontando para o mesmo banco.
+
+Um Postgres em contêiner ao lado do da máquina virava dois "bancos de dev"
+divergindo em silêncio — migration aplicada num, seed rodado no outro.
 
 As migrations rodam num serviço próprio (`migracoes`) que executa
 `alembic upgrade head` e sai; o backend só sobe depois que ele termina bem.

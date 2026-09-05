@@ -3,8 +3,13 @@
 Roda contra Postgres de verdade, não SQLite: metade do que estamos testando
 (trigger de auditoria, tipos com timezone, constraints) não existe no SQLite.
 
-    docker compose up -d db     # basta o banco
-    pytest
+    pytest      # o Postgres da máquina precisa estar de pé
+
+Qual banco: `TEST_DATABASE_URL`, se definida (é o que a CI faz); senão a
+`DATABASE_URL` do `.env` da raiz com o nome do banco trocado por `blue_teste`.
+Nunca o banco de desenvolvimento — o `_limpar` daqui dá TRUNCATE em tudo depois
+de cada teste. A senha do Postgres local não está no repositório: vem do
+`.env`, que é local e ignorado pelo git.
 
 O banco de teste é criado sozinho se não existir.
 """
@@ -19,9 +24,37 @@ from urllib.parse import urlsplit, urlunsplit
 
 import pytest
 
-URL_TESTE = os.environ.get(
-    "TEST_DATABASE_URL", "postgresql+psycopg2://blue:blue@localhost:5433/blue_teste"
-)
+BANCO_DE_TESTE = "blue_teste"
+
+
+def _url_de_teste() -> str:
+    """A URL do banco de teste, sem senha no repositório."""
+    explicita = os.environ.get("TEST_DATABASE_URL")
+    if explicita:
+        return explicita
+
+    arquivo = Path(__file__).resolve().parents[2] / ".env"
+    if not arquivo.exists():
+        raise RuntimeError("defina TEST_DATABASE_URL ou crie o .env da raiz (cp .env.example .env)")
+    linha = next(
+        (
+            bruta
+            for bruta in arquivo.read_text(encoding="utf-8").splitlines()
+            if bruta.strip().startswith("DATABASE_URL=")
+        ),
+        None,
+    )
+    if linha is None:
+        raise RuntimeError(f"{arquivo} não define DATABASE_URL")
+
+    partes = urlsplit(linha.split("=", 1)[1].strip().strip('"').strip("'"))
+    if partes.path.lstrip("/") == BANCO_DE_TESTE:
+        return urlunsplit(partes)
+    # troca só o nome do banco: o resto (papel, senha, host, porta) é o mesmo
+    return urlunsplit(partes._replace(path=f"/{BANCO_DE_TESTE}"))
+
+
+URL_TESTE = _url_de_teste()
 
 os.environ["DATABASE_URL"] = URL_TESTE
 os.environ.setdefault("SECRET_KEY", "chave-de-teste-sem-valor-nenhum")

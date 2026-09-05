@@ -47,13 +47,18 @@ navegação. A autorização acontece no backend.
 
 ## Rodar
 
+O banco é o **PostgreSQL da máquina** (`localhost:5432`), não um contêiner:
+`blue_dev` para desenvolver, `blue_teste` para os testes. O compose sobe só
+frontend e backend, e os alcança por `host.docker.internal` — daí as duas URLs
+do `.env`, que apontam para o mesmo banco.
+
 ```bash
 cp .env.example .env            # obrigatório: o compose recusa subir sem
-docker compose up --build       # frontend :3000, backend :8000, db :5433
+docker compose up --build       # frontend :3000, backend :8000
 
-cd backend
-docker compose up -d db && pytest    # testes precisam do Postgres
-python -m scripts.semear            # dados de demonstração (o banco sobe vazio)
+cd backend                      # aqui, sempre com a venv: .venv/Scripts/python -m ...
+pytest                          # usa blue_teste, criado sozinho se faltar
+python -m scripts.semear        # dados de demonstração (9 contas)
 ruff check . && ruff format . && mypy
 
 cd frontend
