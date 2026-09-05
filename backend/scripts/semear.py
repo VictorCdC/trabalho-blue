@@ -4,10 +4,16 @@
     python -m scripts.semear            # recria a demonstração do zero
     python -m scripts.semear --manter   # não apaga o que já existe
 
-É a porta de `frontend/src/lib/mock/seed.ts`, incluindo o gerador
-pseudoaleatório: mesmo `mulberry32`, mesma ordem de chamadas, mesmos dados. Foi
-feito assim de propósito — dá para abrir a tela antiga e a nova lado a lado e
-comparar número por número enquanto a migração acontece.
+Nove contas, e nada além delas: quatro de painel (admin, RH, SESMT e equipe da
+plataforma) e cinco colaboradores, um por setor. Oito entram com
+`NOME.SOBRENOME` e a senha `blue1234`; a equipe da plataforma entra com
+`admin` / `admin123`. O script imprime a credencial de cada uma.
+
+Cinco colaboradores espalhados é pouca gente de propósito, e o painel mostra
+isso: nenhum recorte alcança `K_MINIMO_AGREGACAO`, então todo agregado sai
+suprimido, e nenhum setor tem as três pessoas que a regra de alerta coletivo
+exige. Sobram os alertas individuais e o caso aberto a partir de um deles —
+as intervenções de `ACOES_DEMO` ficam aqui para quando o quadro crescer.
 
 Recusa rodar em `AMBIENTE=producao`: são CPFs falsos e senha única.
 """
@@ -40,10 +46,15 @@ from app.models import (
 )
 from app.periodo import hoje
 from app.recorte import Recorte, colaboradores
-from app.seguranca import hash_senha
+from app.seguranca import hash_senha, nome_de_usuario
 
-#: Senha única da demonstração. O backend real faz hash e política própria.
+#: Senha das oito contas de empresa. O backend real faz hash e política própria.
 SENHA_DEMO = "blue1234"
+
+#: A conta da plataforma foge do NOME.SOBRENOME de propósito: é o acesso de
+#: manutenção da demonstração, e `admin` é o que se digita sem consultar lista.
+USUARIO_PLATAFORMA = "admin"
+SENHA_PLATAFORMA = "admin123"
 
 JANELA_DIAS = 75
 
@@ -134,59 +145,25 @@ class Perfil:
 
 
 QUADRO_E1 = [
-    # Administrativo — trabalho sentado e tela: cervical e dorsal
-    Perfil("Mariana Alves Prado", "s1", "c1", 0.10, ("cervical", "na")),
-    Perfil("Rafael Coutinho Lima", "s1", "c1", 0.08, ("dorsal", "na")),
-    Perfil("Juliana Sampaio Rocha", "s1", "c2", 0.15, ("cervical", "na")),
-    Perfil("Bruno Teixeira Maia", "s1", "c2", 0.06),
-    Perfil("Camila Duarte Freitas", "s1", "c1", 0.09, ("punho", "direito")),
-    # Atendimento — digitação e telefone
+    # Atendimento — digitação e telefone; quadro em escalada, gera alerta individual
     Perfil("Ana Beatriz Nogueira", "s2", "c3", 0.34, ("punho", "direito"), escalada=True),
-    Perfil("Diego Martins Pereira", "s2", "c3", 0.12, ("cervical", "na")),
-    Perfil("Larissa Gomes Vieira", "s2", "c3", 0.17, ("dorsal", "na")),
-    Perfil("Paulo Henrique Braga", "s2", "c4", 0.07),
-    Perfil("Tatiane Ribeiro Costa", "s2", "c3", 0.13, ("punho", "esquerdo")),
-    # Estoque — carga e descarga: surto coletivo de lombar
+    # Estoque — carga e descarga
     Perfil("Marcos Vinícius Souza", "s3", "c5", 0.25, ("lombar", "na")),
-    Perfil("Fernanda Lopes Andrade", "s3", "c5", 0.21, ("lombar", "na")),
-    Perfil("Cláudio Barbosa Neto", "s3", "c6", 0.23, ("lombar", "na")),
-    Perfil("Rodrigo Amaral Pinto", "s3", "c7", 0.28, ("lombar", "na")),
-    Perfil("Simone Cardoso Melo", "s3", "c7", 0.19, ("lombar", "na")),
-    Perfil("Eduardo Farias Campos", "s3", "c6", 0.16, ("ombro", "direito")),
-    Perfil("Patrícia Nunes Moura", "s3", "c5", 0.20, ("lombar", "na")),
-    # Produção — repetitivo de ombro; setor já passou por intervenção
+    # Produção — repetitivo de ombro, já melhorou depois da intervenção
     Perfil("José Carlos Almeida", "s4", "c8", 0.22, ("ombro", "direito"), melhorou=True),
-    Perfil("Vanessa Cruz Batista", "s4", "c9", 0.18, ("antebraco", "direito")),
-    Perfil("Igor Menezes Tavares", "s4", "c8", 0.19, ("ombro", "esquerdo"), melhorou=True),
-    Perfil("Renata Figueiredo Dias", "s4", "c10", 0.11, ("cervical", "na")),
-    Perfil("Wesley Santana Rocha", "s4", "c9", 0.24, ("ombro", "direito"), melhorou=True),
-    Perfil("Amanda Peixoto Lira", "s4", "c9", 0.14, ("punho", "direito")),
-    Perfil("Gustavo Bezerra Matos", "s4", "c8", 0.17, ("lombar", "na")),
     # Expedição
-    Perfil("Sérgio Aquino Ramos", "s5", "c11", 0.21, ("lombar", "na")),
     Perfil("Kelly Oliveira Serra", "s5", "c11", 0.15, ("joelho", "direito")),
-    Perfil("Anderson Pires Cunha", "s5", "c12", 0.18, ("lombar", "na")),
-    Perfil("Michele Torres Aguiar", "s5", "c11", 0.12, ("punho", "esquerdo")),
-    Perfil("Fábio Correia Lemos", "s5", "c12", 0.10, ("panturrilha", "direito")),
 ]
 
 QUADRO_E2 = [
     Perfil("Beatriz Xavier Pontes", "s6", "c13", 0.26, ("punho", "direito")),
-    Perfil("Leandro Aguiar Brito", "s6", "c13", 0.22, ("punho", "direito")),
-    Perfil("Cristiane Melo Bastos", "s6", "c13", 0.19, ("ombro", "direito")),
-    Perfil("Vitor Hugo Salgado", "s6", "c14", 0.20, ("lombar", "na")),
-    Perfil("Nathália Braz Ferreira", "s6", "c14", 0.16, ("lombar", "na")),
-    Perfil("Elias Monteiro Rocha", "s7", "c15", 0.18, ("ombro", "esquerdo")),
-    Perfil("Rosana Lira Cavalcante", "s7", "c15", 0.14, ("canela", "direito")),
-    Perfil("Thiago Meireles Pinho", "s7", "c15", 0.11),
 ]
 
-#: Gestores e equipe da plataforma — os logins fixos da demonstração.
+#: Os quatro acessos de painel: um por perfil, para ver as quatro telas.
 GESTORES = [
     ("e1", "Helena Castro Vasconcelos", "helena@aurora.com.br", "admin", "u1", "s1", "c16", 1200),
     ("e1", "Priscila Moraes Aragão", "priscila.rh@aurora.com.br", "rh", "u1", "s1", "c16", 980),
     ("e1", "Otávio Mendes Ferraz", "otavio.sesmt@aurora.com.br", "sesmt", "u1", "s1", "c16", 640),
-    ("e2", "Denise Aparecida Rangel", "denise@bemviver.com.br", "admin", "u3", "s6", "c13", 300),
     (None, "Letícia Ramalho", "leticia@blue.app", "superuser", None, None, None, None),
 ]
 
@@ -349,7 +326,8 @@ ACOES_DEMO: dict[str, tuple[str, int, list[tuple[int, str, str, bool]]]] = {
 class Contexto:
     hoje: date
     ids: dict[str, str] = field(default_factory=dict)
-    logins: list[tuple[str, str, str]] = field(default_factory=list)
+    #: (papel, nome, usuário, senha) — o que o resumo imprime no fim
+    logins: list[tuple[str, str, str, str]] = field(default_factory=list)
 
 
 def _escolha(rnd, opcoes):  # type: ignore[no-untyped-def]
@@ -418,6 +396,7 @@ def semear_pessoas(sessao: Session, ctx: Contexto) -> None:
             pessoa = Usuario(
                 empresa_id=empresa_id,
                 nome=perfil.nome,
+                usuario=nome_de_usuario(perfil.nome),
                 cpf=cpf_falso(indice),
                 email=None,
                 role="colaborador",
@@ -432,6 +411,7 @@ def semear_pessoas(sessao: Session, ctx: Contexto) -> None:
             )
             sessao.add(pessoa)
             sessao.flush()
+            ctx.logins.append(("colaborador", perfil.nome, pessoa.usuario, SENHA_DEMO))
 
             adesao = 0.62 + rnd() * 0.33
             regioes = PERFIL_SETOR.get(perfil.setor, [("lombar", "na")])
@@ -502,15 +482,19 @@ def semear_pessoas(sessao: Session, ctx: Contexto) -> None:
                     )
                 )
 
+    senha_plataforma = hash_senha(SENHA_PLATAFORMA)
+
     for empresa_chave, nome, email, papel, unidade, setor, cargo, admissao in GESTORES:
         indice += 1
+        plataforma = papel == "superuser"
         gestor = Usuario(
             empresa_id=ctx.ids[empresa_chave] if empresa_chave else None,
             nome=nome,
+            usuario=USUARIO_PLATAFORMA if plataforma else nome_de_usuario(nome),
             cpf=cpf_falso(indice),
             email=email,
             role=papel,
-            senha_hash=senha,
+            senha_hash=senha_plataforma if plataforma else senha,
             ativo=True,
             unidade_id=ctx.ids[unidade] if unidade else None,
             setor_id=ctx.ids[setor] if setor else None,
@@ -520,14 +504,9 @@ def semear_pessoas(sessao: Session, ctx: Contexto) -> None:
             tentativas_falhas=0,
         )
         sessao.add(gestor)
-        ctx.logins.append((papel, nome, gestor.cpf))
-
-    # o colaborador da demonstração é a Ana, cujo quadro está em escalada
-    ana = sessao.scalars(
-        select(Usuario).where(Usuario.nome == "Ana Beatriz Nogueira")
-    ).one_or_none()
-    if ana is not None:
-        ctx.logins.insert(0, ("colaborador", ana.nome, ana.cpf))
+        ctx.logins.append(
+            (papel, nome, gestor.usuario, SENHA_PLATAFORMA if plataforma else SENHA_DEMO)
+        )
 
 
 def semear_casos(sessao: Session, ctx: Contexto) -> None:
@@ -665,10 +644,9 @@ def main() -> int:
 
 
 def _resumir(ctx: Contexto) -> None:
-    print("demonstracao semeada.")
-    print(f"senha de todos os perfis: {SENHA_DEMO}")
-    for papel, nome, cpf in ctx.logins:
-        print(f"  {papel:12} {cpf}  {nome}")
+    print("demonstracao semeada: 4 acessos de painel e 5 colaboradores.")
+    for papel, nome, login, senha in ctx.logins:
+        print(f"  {papel:12} {login:22} {senha:10} {nome}")
 
 
 if __name__ == "__main__":

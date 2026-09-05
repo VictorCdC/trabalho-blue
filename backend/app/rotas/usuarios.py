@@ -17,7 +17,7 @@ from app.esquemas import UsuarioEntrada, UsuarioListado, UsuarioPatch
 from app.models import Cargo, Setor, Unidade, Usuario
 from app.paginacao import Pagina, Paginacao, paginacao
 from app.rbac_gerado import Role
-from app.seguranca import hash_senha
+from app.seguranca import hash_senha, nome_de_usuario
 
 roteador = APIRouter(tags=["usuarios"])
 
@@ -34,6 +34,17 @@ def _senha_inicial(entrada: UsuarioEntrada) -> str:
             detail="Informe a data de nascimento: ela e a senha do primeiro acesso",
         )
     return entrada.nascimento.strftime("%d%m%Y")
+
+
+def _usuario_derivado(nome: str) -> str:
+    """A credencial NOME.SOBRENOME sai do nome — não é digitada no cadastro."""
+    try:
+        return nome_de_usuario(nome)
+    except ValueError as erro:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Informe o nome completo: o usuario de acesso e derivado dele",
+        ) from erro
 
 
 def _validar_lotacao(consulta: ConsultaEscopada, entrada: UsuarioEntrada | UsuarioPatch) -> None:
@@ -99,6 +110,7 @@ def criar_usuario(
     novo = Usuario(
         empresa_id=consulta.empresa_id,
         nome=entrada.nome,
+        usuario=_usuario_derivado(entrada.nome),
         cpf=entrada.cpf,
         email=entrada.email,
         role=entrada.role,
@@ -127,10 +139,12 @@ def criar_usuario(
         consulta.sessao.commit()
     except IntegrityError as erro:
         consulta.sessao.rollback()
-        # o CPF e unico no sistema inteiro: ver o comentario em models.Usuario
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail="Ja existe um usuario com este CPF."
-        ) from erro
+        # usuario e CPF sao unicos no sistema inteiro: ver o comentario em models.Usuario
+        if "usuario_usuario_key" in str(erro.orig):
+            detalhe = f"Ja existe a conta {novo.usuario}: dois nomes derivam o mesmo usuario."
+        else:
+            detalhe = "Ja existe um usuario com este CPF."
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detalhe) from erro
     return novo
 
 
@@ -148,6 +162,8 @@ def atualizar_usuario(
     _validar_lotacao(consulta, patch)
 
     campos = patch.model_dump(exclude_unset=True)
+    # `usuario` não entra no patch de propósito: corrigir o nome de alguém não
+    # pode trocar por baixo a credencial que essa pessoa já usa para entrar.
     for campo, valor in campos.items():
         setattr(alvo, campo, valor)
 

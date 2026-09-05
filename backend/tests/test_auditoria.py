@@ -17,7 +17,7 @@ def acoes(sessao) -> list[str]:
 
 def test_login_bem_sucedido_e_registrado(cliente, criar_usuario, empresa, sessao) -> None:
     usuario = criar_usuario("sesmt", empresa_id=empresa.id)
-    cliente.post("/auth/login", json={"cpf": usuario.cpf, "senha": SENHA_PADRAO})
+    cliente.post("/auth/login", json={"usuario": usuario.usuario, "senha": SENHA_PADRAO})
 
     registro = sessao.scalars(select(LogAuditoria)).one()
     assert registro.acao == "login:sucesso"
@@ -27,7 +27,7 @@ def test_login_bem_sucedido_e_registrado(cliente, criar_usuario, empresa, sessao
 
 def test_login_falho_e_registrado(cliente, criar_usuario, empresa, sessao) -> None:
     usuario = criar_usuario("sesmt", empresa_id=empresa.id)
-    cliente.post("/auth/login", json={"cpf": usuario.cpf, "senha": "errada-de-proposito"})
+    cliente.post("/auth/login", json={"usuario": usuario.usuario, "senha": "errada-de-proposito"})
     assert acoes(sessao) == ["login:falha"]
 
 
@@ -53,7 +53,7 @@ def test_leitura_de_lista_cadastral_e_registrada(
 
 def test_banco_recusa_update_no_log(cliente, criar_usuario, empresa, sessao) -> None:
     usuario = criar_usuario("rh", empresa_id=empresa.id)
-    cliente.post("/auth/login", json={"cpf": usuario.cpf, "senha": SENHA_PADRAO})
+    cliente.post("/auth/login", json={"usuario": usuario.usuario, "senha": SENHA_PADRAO})
 
     with pytest.raises(DatabaseError, match="somente-insercao"):
         sessao.execute(text("UPDATE log_auditoria SET acao = 'maquiado'"))
@@ -62,7 +62,7 @@ def test_banco_recusa_update_no_log(cliente, criar_usuario, empresa, sessao) -> 
 
 def test_banco_recusa_delete_no_log(cliente, criar_usuario, empresa, sessao) -> None:
     usuario = criar_usuario("rh", empresa_id=empresa.id)
-    cliente.post("/auth/login", json={"cpf": usuario.cpf, "senha": SENHA_PADRAO})
+    cliente.post("/auth/login", json={"usuario": usuario.usuario, "senha": SENHA_PADRAO})
 
     with pytest.raises(DatabaseError, match="somente-insercao"):
         sessao.execute(text("DELETE FROM log_auditoria"))

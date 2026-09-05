@@ -166,6 +166,7 @@ function Conteudo() {
                           </Avatar>
                           <div>
                             <span className="block font-medium">{u.nome}</span>
+                            <span className="text-muted-foreground block text-xs">{u.usuario}</span>
                             {u.email && (
                               <span className="text-muted-foreground block text-xs">{u.email}</span>
                             )}
@@ -296,7 +297,8 @@ function DialogoNovoUsuario({
         <DialogHeader>
           <DialogTitle>Novo usuário</DialogTitle>
           <DialogDescription>
-            O primeiro acesso é feito com CPF e a data de nascimento como senha provisória.
+            O usuário de acesso sai do nome, no formato nome.sobrenome. A senha provisória é a data
+            de nascimento.
           </DialogDescription>
         </DialogHeader>
 

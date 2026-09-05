@@ -43,6 +43,7 @@ from app.dominio import (
     TipoDor,
 )
 from app.rbac_gerado import Role
+from app.seguranca import normalizar_usuario
 
 SO_DIGITOS = re.compile(r"\D")
 
@@ -74,16 +75,16 @@ def mascarar_cpf(digitos: str) -> str:
 
 
 class LoginEntrada(Esquema):
-    cpf: str
+    usuario: str
     senha: str
 
-    @field_validator("cpf")
+    @field_validator("usuario")
     @classmethod
-    def _normalizar_cpf(cls, valor: str) -> str:
-        digitos = SO_DIGITOS.sub("", valor)
-        if len(digitos) != 11:
-            raise ValueError("CPF deve ter 11 dígitos")
-        return digitos
+    def _normalizar_usuario(cls, valor: str) -> str:
+        limpo = normalizar_usuario(valor)
+        if not limpo:
+            raise ValueError("Informe o usuário")
+        return limpo
 
 
 class CheckInEntrada(Esquema):
@@ -207,6 +208,7 @@ class UsuarioEu(Esquema):
     id: str
     empresa_id: str | None
     nome: str
+    usuario: str
     cpf: str
     email: str | None
     role: Role
@@ -223,10 +225,15 @@ class UsuarioEu(Esquema):
 
 
 class UsuarioListado(Esquema):
-    """Linha da administração de acessos. Sem CPF: a tela não precisa dele."""
+    """Linha da administração de acessos. Sem CPF: a tela não precisa dele.
+
+    O `usuario` sai porque é derivado do nome no servidor: quem cadastra só
+    descobre por aqui qual credencial entregar à pessoa.
+    """
 
     id: str
     nome: str
+    usuario: str
     email: str | None
     role: Role
     ativo: bool

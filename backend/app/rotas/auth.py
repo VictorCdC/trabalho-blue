@@ -1,9 +1,12 @@
 """Login, sessão e logout.
 
+A credencial é o nome de usuário (NOME.SOBRENOME) mais a senha. O CPF ficou
+sendo só cadastro.
+
 Cuidados que valem repetir: a resposta de erro é sempre a mesma frase (não
-revela se o CPF existe), a verificação de senha roda mesmo para CPF
+revela se o usuário existe), a verificação de senha roda mesmo para usuário
 inexistente (não vaza pelo tempo de resposta) e o bloqueio é por conta, com
-prazo, porque CPF é enumerável.
+prazo, porque nome de usuário derivado do nome é adivinhável.
 """
 
 from __future__ import annotations
@@ -24,7 +27,7 @@ from app.seguranca import HASH_DESCARTAVEL, definir_cookie, limpar_cookie, senha
 
 roteador = APIRouter(prefix="/auth", tags=["auth"])
 
-CREDENCIAL_INVALIDA = "CPF ou senha invalidos"
+CREDENCIAL_INVALIDA = "Usuario ou senha invalidos"
 
 
 @roteador.post("/login", response_model=UsuarioEu)
@@ -36,7 +39,9 @@ def login(
 ) -> UsuarioEu:
     config = obter_config()
     agora = datetime.now(UTC)
-    usuario = sessao.scalars(select(Usuario).where(Usuario.cpf == entrada.cpf)).one_or_none()
+    usuario = sessao.scalars(
+        select(Usuario).where(Usuario.usuario == entrada.usuario)
+    ).one_or_none()
 
     if usuario is not None and usuario.bloqueado_ate is not None and usuario.bloqueado_ate > agora:
         auditoria.registrar(

@@ -80,9 +80,14 @@ O banco sobe vazio. Para plantar a demonstração:
 cd backend && python -m scripts.semear
 ```
 
-O script imprime os CPFs de cada perfil (senha `blue1234`) e recusa rodar com
-`AMBIENTE=producao`. É a porta do antigo `frontend/src/lib/mock/seed.ts`, com o
-mesmo gerador pseudoaleatório — os números batem com os da versão em memória.
+São nove contas: quatro de painel (admin, RH, SESMT e plataforma) e cinco
+colaboradores. Oito entram com `NOME.SOBRENOME` e a senha `blue1234`; a equipe
+da plataforma entra com `admin` / `admin123`. O script imprime a credencial de
+cada uma e recusa rodar com `AMBIENTE=producao`.
+
+Cinco colaboradores é pouca gente de propósito, e o painel mostra isso: nenhum
+recorte alcança `K_MINIMO_AGREGACAO`, então os agregados saem suprimidos e não
+há alerta coletivo. O que resta é o alerta individual e o caso aberto dele.
 
 ## Como o projeto se protege
 

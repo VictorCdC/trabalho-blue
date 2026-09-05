@@ -1,4 +1,4 @@
-"""Hash de senha e cookie de sessão.
+"""Credenciais: nome de usuário, hash de senha e cookie de sessão.
 
 O cookie carrega apenas o id do usuário, assinado com SECRET_KEY e com prazo.
 Ele é httpOnly: JavaScript não o lê, então um XSS no frontend não vira sessão
@@ -6,6 +6,9 @@ roubada — motivo pelo qual a sessão não pode voltar para o localStorage.
 """
 
 from __future__ import annotations
+
+import re
+import unicodedata
 
 from argon2 import PasswordHasher
 from argon2.exceptions import VerificationError, VerifyMismatchError
@@ -18,9 +21,39 @@ NOME_COOKIE = "blue_sessao"
 
 _hasher = PasswordHasher()
 
-#: Hash descartável verificado quando o CPF não existe, para que o tempo de
-#: resposta não diferencie "CPF inexistente" de "senha errada".
+#: Hash descartável verificado quando o usuário não existe, para que o tempo de
+#: resposta não diferencie "usuário inexistente" de "senha errada".
 HASH_DESCARTAVEL = _hasher.hash("senha-que-nunca-sera-usada")
+
+#: separa o nome em partes: hífen, apóstrofo e ponto não entram no login
+_NAO_LETRA = re.compile(r"[^a-z0-9]+")
+
+
+def normalizar_usuario(valor: str) -> str:
+    """Minúsculo e sem acento — `Ana.Nogueira` e `ana.nogueira` são o mesmo login.
+
+    Passa por aqui tanto o que o formulário de login digitou quanto o que vai
+    gravado: se as duas pontas não normalizassem igual, o nome derivado de
+    `Otávio` viraria uma credencial que ninguém consegue digitar de volta.
+    """
+    cru = unicodedata.normalize("NFKD", valor).encode("ascii", "ignore").decode("ascii")
+    return cru.strip().lower()
+
+
+def nome_de_usuario(nome: str) -> str:
+    """`Marcos Vinícius Souza` -> `marcos.souza`: primeiro e último nome.
+
+    Nome do meio fica fora — o formato combinado é NOME.SOBRENOME. Duas
+    pessoas com primeiro e último nome iguais colidem, e é a unicidade da
+    coluna que recusa a segunda: inventar aqui um `marcos.souza2` esconderia
+    de quem cadastrou que existem duas contas parecidas.
+    """
+    partes = [parte for parte in _NAO_LETRA.split(normalizar_usuario(nome)) if parte]
+    if not partes:
+        raise ValueError("nome sem letras: nao da para derivar o nome de usuario")
+    if len(partes) == 1:
+        return partes[0]
+    return f"{partes[0]}.{partes[-1]}"
 
 
 def hash_senha(senha: str) -> str:

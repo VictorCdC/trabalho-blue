@@ -113,10 +113,14 @@ class Cargo(Base):
 class Usuario(Base):
     """Pessoa que faz login.
 
-    `cpf` é único no sistema inteiro, e não por empresa, porque o login é só
-    CPF + senha: sem isso a mesma credencial resolveria para dois tenants.
-    Se um dia a mesma pessoa precisar de conta em duas empresas, isto vira
-    (empresa_id, cpf) único e o login ganha um seletor de empresa.
+    `usuario` (NOME.SOBRENOME) é único no sistema inteiro, e não por empresa,
+    porque o login é só usuário + senha: sem isso a mesma credencial
+    resolveria para dois tenants. Se um dia a mesma pessoa precisar de conta
+    em duas empresas, isto vira (empresa_id, usuario) único e o login ganha um
+    seletor de empresa.
+
+    `cpf` continua único, mas deixou de ser credencial: é o cadastro da
+    pessoa, e duas contas com o mesmo CPF seriam a mesma pessoa duplicada.
     """
 
     __tablename__ = "usuario"
@@ -131,6 +135,8 @@ class Usuario(Base):
         String(36), ForeignKey("empresa.id", ondelete="RESTRICT"), index=True
     )
     nome: Mapped[str] = mapped_column(String(160))
+    #: credencial de login, derivada do nome por `seguranca.nome_de_usuario`
+    usuario: Mapped[str] = mapped_column(String(160), unique=True)
     cpf: Mapped[str] = mapped_column(String(11), unique=True)
     email: Mapped[str | None] = mapped_column(String(255))
     role: Mapped[Role] = mapped_column(String(20))
@@ -151,7 +157,7 @@ class Usuario(Base):
     nascimento: Mapped[date | None] = mapped_column(Date)
     admissao_em: Mapped[date | None] = mapped_column(Date)
 
-    # controle de força bruta no login (CPF é enumerável, não é segredo)
+    # controle de força bruta no login (o nome de usuário é previsível, não é segredo)
     tentativas_falhas: Mapped[int] = mapped_column(Integer, default=0)
     bloqueado_ate: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
@@ -303,7 +309,7 @@ class LogAuditoria(Base):
     ocorrido_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), index=True
     )
-    #: nulo quando nem houve autenticação (tentativa de login com CPF inexistente)
+    #: nulo quando nem houve autenticação (tentativa de login com usuário inexistente)
     ator_id: Mapped[str | None] = mapped_column(String(36), index=True)
     ator_role: Mapped[str | None] = mapped_column(String(20))
     #: tenant cujo dado foi tocado

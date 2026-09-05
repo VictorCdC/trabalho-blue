@@ -115,10 +115,10 @@ async function mensagemDeErro(resposta: Response): Promise<string> {
 export const httpApi: BlueApi = {
   /* ------------------------------ sessão ------------------------------ */
 
-  entrar(cpf, senha) {
+  entrar(usuario, senha) {
     return pedir<UsuarioEu>("/auth/login", {
       method: "POST",
-      body: JSON.stringify({ cpf, senha }),
+      body: JSON.stringify({ usuario, senha }),
     });
   },
 

@@ -158,6 +158,8 @@ def criar_usuario(sessao: Session):
         u = Usuario(
             empresa_id=empresa_id,
             nome=f"Usuario {role} {contador['n']}",
+            # login previsível e sem homônimo: o nome de fábrica repetiria
+            usuario=f"{role}.{contador['n']}",
             cpf=f"{contador['n']:011d}",
             email=None,
             role=role,
@@ -177,7 +179,7 @@ def autenticar(cliente: TestClient):
     """Faz login de verdade e devolve o cliente com o cookie de sessão."""
 
     def entrar(usuario: Usuario, senha: str = SENHA_PADRAO) -> TestClient:
-        resposta = cliente.post("/auth/login", json={"cpf": usuario.cpf, "senha": senha})
+        resposta = cliente.post("/auth/login", json={"usuario": usuario.usuario, "senha": senha})
         assert resposta.status_code == 200, resposta.text
         return cliente
 
@@ -220,6 +222,7 @@ def criar_colaborador(sessao: Session, empresa: Empresa, estrutura: dict[str, st
         u = Usuario(
             empresa_id=empresa.id,
             nome=nome or f"Colaborador {contador['n']}",
+            usuario=f"colaborador.{contador['n']}",
             cpf=f"{contador['n']:011d}",
             email=None,
             role="colaborador",

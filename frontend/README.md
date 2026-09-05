@@ -37,7 +37,7 @@ envia o que o perfil não pode ver. Um alerta individual chega ao RH com
 ```
 src/
 ├── app/
-│   ├── login/                  # CPF + senha
+│   ├── login/                  # usuário (nome.sobrenome) + senha
 │   ├── (colaborador)/          # mobile-first, navegação inferior
 │   │   ├── inicio/             # check-in do dia + resumo
 │   │   ├── registrar/          # mapa corporal + formulário da queixa
@@ -114,13 +114,22 @@ Os dados fictícios são plantados pelo backend:
 cd backend && python -m scripts.semear
 ```
 
-O script imprime os CPFs de cada perfil; a senha de todos é `blue1234`.
+O script imprime a credencial de cada perfil. As oito contas de empresa usam
+`NOME.SOBRENOME` com a senha `blue1234`; a da plataforma é `admin` /
+`admin123`, que não segue o formato porque é o acesso de manutenção da
+demonstração.
 
-Dados plantados para a demonstração:
+São quatro contas de painel (uma por perfil) e cinco colaboradores, um por
+setor:
 
-- **Ana Beatriz Nogueira** (Atendimento): punho direito em escalada → alerta individual.
-- **Estoque**: surto coletivo de lombar → caso em andamento com ginástica laboral.
-- **Produção**: ombro em queda depois de ajuste de bancada → caso resolvido.
+- **ana.nogueira** — Ana Beatriz Nogueira (Atendimento): punho direito em
+  escalada → alerta individual, e o caso aberto a partir dele.
+- **marcos.souza**, **jose.almeida**, **kelly.serra** e **beatriz.pontes** —
+  um por setor, com 75 dias de check-in e queixa cada.
+
+Com cinco colaboradores espalhados, todo recorte fica abaixo de
+`K_MINIMO_AGREGACAO`: o painel responde "grupo pequeno demais" em vez de
+número, e não há alerta coletivo. As telas do colaborador têm dado cheio.
 
 ## Identidade visual
 

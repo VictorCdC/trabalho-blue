@@ -95,7 +95,7 @@ export class ErroApi extends Error {
 
 export interface BlueApi {
   /* sessão — o cookie é httpOnly, então quem sabe quem está logado é o servidor */
-  entrar(cpf: string, senha: string): Promise<UsuarioEu>;
+  entrar(usuario: string, senha: string): Promise<UsuarioEu>;
   eu(): Promise<UsuarioEu | null>;
   sair(): Promise<void>;
   /** tenant que o superuser está olhando; ignorado para os demais perfis */

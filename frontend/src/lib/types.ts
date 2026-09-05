@@ -67,6 +67,7 @@ export interface UsuarioEu {
   id: string;
   empresaId: string | null; // null = superuser (plataforma)
   nome: string;
+  usuario: string; // credencial de acesso: nome.sobrenome
   cpf: string; // só dígitos — é o dado do próprio usuário
   email: string | null;
   role: Role;
@@ -81,10 +82,13 @@ export interface UsuarioEu {
   cargoNome: string | null;
 }
 
-/** Linha da administração de acessos. Sem CPF: a tela não precisa dele. */
+/** Linha da administração de acessos. Sem CPF: a tela não precisa dele.
+    O `usuario` vem porque o servidor o deriva do nome: é por esta lista que
+    quem cadastra descobre qual credencial entregar à pessoa. */
 export interface UsuarioListado {
   id: string;
   nome: string;
+  usuario: string;
   email: string | null;
   role: Role;
   ativo: boolean;

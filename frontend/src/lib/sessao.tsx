@@ -24,7 +24,7 @@ interface SessaoCtx {
   usuario: UsuarioEu | null;
   /** empresa cujo painel está aberto — o superuser pode trocar */
   empresaAtivaId: string | null;
-  entrar(cpf: string, senha: string): Promise<string | null>;
+  entrar(nomeUsuario: string, senha: string): Promise<string | null>;
   sair(): Promise<void>;
   trocarEmpresa(id: string): void;
 }
@@ -79,9 +79,10 @@ export function SessaoProvider({ children }: { children: React.ReactNode }) {
   }, [adotar]);
 
   const entrar = React.useCallback(
-    async (cpf: string, senha: string) => {
+    // `nomeUsuario` e não `usuario`: aqui `usuario` já é o estado da sessão
+    async (nomeUsuario: string, senha: string) => {
       try {
-        await adotar(await api.entrar(cpf, senha));
+        await adotar(await api.entrar(nomeUsuario, senha));
         return null;
       } catch (erro) {
         return erro instanceof Error ? erro.message : "Não foi possível entrar.";

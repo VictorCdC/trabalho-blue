@@ -8,14 +8,14 @@ import { BotaoTema } from "@/components/tema";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { mascaraCPF } from "@/lib/format";
 import { ROTA_INICIAL } from "@/lib/rbac";
 import { useSessao } from "@/lib/sessao";
 
 export default function PaginaLogin() {
   const router = useRouter();
   const { entrar, usuario, carregando } = useSessao();
-  const [cpf, setCpf] = React.useState("");
+  // `nomeUsuario`: `usuario` acima já é quem está logado
+  const [nomeUsuario, setNomeUsuario] = React.useState("");
   const [senha, setSenha] = React.useState("");
   const [erro, setErro] = React.useState<string | null>(null);
   const [enviando, setEnviando] = React.useState(false);
@@ -25,12 +25,12 @@ export default function PaginaLogin() {
   }, [carregando, usuario, router]);
 
   /* Os atalhos de perfil saíram junto com o mock: eles vinham de uma chamada
-     que listava CPFs válidos, e uma rota dessas não existe contra um backend
-     de verdade. As credenciais da demonstração são impressas pelo seed. */
-  async function submeter(cpfEntrada: string, senhaEntrada: string) {
+     que listava credenciais válidas, e uma rota dessas não existe contra um
+     backend de verdade. As da demonstração são impressas pelo seed. */
+  async function submeter(usuarioEntrada: string, senhaEntrada: string) {
     setErro(null);
     setEnviando(true);
-    const falha = await entrar(cpfEntrada, senhaEntrada);
+    const falha = await entrar(usuarioEntrada, senhaEntrada);
     setEnviando(false);
     if (falha) setErro(falha);
   }
@@ -83,27 +83,28 @@ export default function PaginaLogin() {
         <div className="mx-auto w-full max-w-sm lg:mx-0">
           <h2 className="text-2xl font-semibold tracking-tight">Entrar</h2>
           <p className="text-muted-foreground mt-1.5 text-sm">
-            Use seu CPF e a senha que a empresa forneceu.
+            Use seu usuário e a senha que a empresa forneceu.
           </p>
 
           <form
             className="mt-7 space-y-4"
             onSubmit={(e) => {
               e.preventDefault();
-              void submeter(cpf, senha);
+              void submeter(nomeUsuario, senha);
             }}
           >
             <div className="space-y-2">
-              <Label htmlFor="cpf">CPF</Label>
+              <Label htmlFor="usuario">Usuário</Label>
               <Input
-                id="cpf"
-                inputMode="numeric"
+                id="usuario"
                 autoComplete="username"
-                placeholder="000.000.000-00"
-                value={mascaraCPF(cpf)}
-                onChange={(e) => setCpf(e.target.value.replace(/\D/g, "").slice(0, 11))}
+                autoCapitalize="none"
+                spellCheck={false}
+                placeholder="nome.sobrenome"
+                value={nomeUsuario}
+                onChange={(e) => setNomeUsuario(e.target.value)}
                 aria-invalid={Boolean(erro)}
-                className="h-11 text-base tnum"
+                className="h-11 text-base"
               />
             </div>
 
@@ -142,7 +143,6 @@ export default function PaginaLogin() {
               Esqueci minha senha
             </button>
           </form>
-
         </div>
       </main>
     </div>
